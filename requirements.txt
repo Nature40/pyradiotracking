@@ -1,0 +1,4 @@
+pyrtlsdr
+scipy
+numpy
+si_prefix
