@@ -124,7 +124,7 @@ class SignalAnalyzer(Thread):
                 start = ti
                 while start >= -len(self._spectrogram_last):
                     if start < 0:
-                        power = self._spectrogram_last[fi, -start]
+                        power = self._spectrogram_last[fi, start]
                     else:
                         power = fft[start]
 
@@ -158,8 +158,9 @@ class SignalAnalyzer(Thread):
 
                 # extract data
                 if start < 0:
-                    data = np.concatenate(self._spectrogram_last[fi, -
-                                                                 start:], fft[:end])
+                    # data = self._spectrogram_last[fi][start:] + fft[:end]
+                    data = np.concatenate((
+                        self._spectrogram_last[fi][start:], fft[:end]))
                 else:
                     data = fft[start:end]
 
