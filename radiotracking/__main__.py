@@ -15,7 +15,11 @@ import rtlsdr
 
 logger = logging.getLogger(__name__)
 
-parser = argparse.ArgumentParser(fromfile_prefix_chars='@')
+parser = argparse.ArgumentParser(
+    prog="radiotracking",
+    description='Detect signals of wildlife tracking systems with RTL SDR devices',
+    fromfile_prefix_chars='@',
+    )
 # generic options
 parser.add_argument("-v", "--verbose",
                     help="increase output verbosity",
