@@ -5,6 +5,16 @@ import rtlsdr
 from radiotracking import Signal
 
 
+class SignalMatcher:
+    def __init__(self):
+        self.signals = []
+
+    def add(self, sdr: rtlsdr.RtlSdr, signal: Signal):
+        # signals arrive in arbitrary order and signals could
+
+        pass
+
+
 class CsvConsumer:
     def __init__(self, out):
         self.out = out

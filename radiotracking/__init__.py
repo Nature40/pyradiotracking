@@ -3,6 +3,13 @@ import datetime
 from si_prefix import si_format
 
 
+def dB(val):
+    return 10 * np.log10(val)
+
+def from_dB(dB):
+    return 10 ** (dB/10)
+
+
 class Signal:
     def __init__(
             self,
@@ -32,33 +39,28 @@ class Signal:
 
     @property
     def max(self):
-        return max(self.data_padded)
+        return dB(max(self.data_padded))
 
     @property
     def min(self):
-        return min(self.data_padded)
+        return dB(min(self.data_padded))
 
     @property
     def avg(self):
-        return np.average(self.data_padded)
+        return np.average(dB(self.data_padded))
 
     @property
     def var(self):
-        return np.var(self.data_padded)
-
-    @property
-    def sum(self):
-        return sum(self.data)
+        return np.var(dB(self.data_padded))
 
     header = [
         "Time",
         "Frequency (MHz)",
         "Duration (ms)",
-        "min",
-        "max",
-        "sum",
-        "avg",
-        "var",
+        "min (dBW)",
+        "max (dBW)",
+        "avg (dBW)",
+        "var (dB)",
     ]
 
     @property
@@ -69,7 +71,6 @@ class Signal:
             self.duration_s,
             self.min,
             self.max,
-            self.sum,
             self.avg,
             self.var,
         ]
@@ -82,7 +83,6 @@ class Signal:
             self.duration_s * 100,
             self.min,
             self.max,
-            self.sum,
             self.avg,
             self.var,
         ]
@@ -93,4 +93,4 @@ class Signal:
         return dict(zip(self.header, self.as_list))
 
     def __repr__(self):
-        return f"Signal(\"{self.ts}\", {self.frequency}, {self.duration_s:13})"
+        return f"Signal(\"{self.ts}\", {self.frequency}, {self.duration_s:13}, {self.max})"

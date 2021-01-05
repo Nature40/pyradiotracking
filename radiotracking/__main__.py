@@ -4,10 +4,11 @@ from numpy.lib.financial import nper
 from rtlsdr.rtlsdr import RtlSdr
 from si_prefix import si_format
 from radiotracking.analyze import SignalAnalyzer
-from radiotracking.consume import CsvConsumer
+from radiotracking.consume import CsvConsumer, SignalMatcher
 import signal
 import datetime
 import sys
+import os
 import logging
 import argparse
 import rtlsdr
@@ -25,7 +26,7 @@ parser.add_argument("-v", "--verbose",
 sdr_options = parser.add_argument_group("software-defined radio (SDR)")
 sdr_options.add_argument("-d", "--device",
                          help="device indexes or names, default: 0",
-                         default=0,
+                         default=[0],
                          nargs="*")
 sdr_options.add_argument("-f", "--center_freq",
                          help="center frequency to tune to (Hz), default: 150100001",
@@ -40,8 +41,8 @@ sdr_options.add_argument("-b", "--sdr_callback_length",
                          default=None,
                          type=int)
 sdr_options.add_argument("-g", "--gain",
-                         help="gain, default: auto",
-                         default="auto")
+                         help="gain, supported levels 0.0 - 49.6, default: 49.6",
+                         default="49.6")
 
 # analysis options
 analysis_options = parser.add_argument_group("signal analysis")
@@ -53,10 +54,10 @@ analysis_options.add_argument("-w", "--fft_window",
                               help="fft window function, see https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html",
                               type=eval,
                               default="'boxcar'")
-analysis_options.add_argument("-t", "--signal_threshold",
-                              help="lower limit for signal intensity",
+analysis_options.add_argument("-t", "--signal_threshold_db",
+                              help="lower limit for signal intensity (dBW)",
                               type=float,
-                              default=0.00001)
+                              default=-50.0)
 analysis_options.add_argument("-l", "--signal_min_duration",
                               help="lower limit for signal duration (s), default: 0.002",
                               type=float,
@@ -105,22 +106,31 @@ if __name__ == "__main__":
     analyze_start = datetime.datetime.now()
     analyzers = []
 
+    signal_matcher = SignalMatcher()
+
     for device, device_index in zip(args.device, device_indexes):
         sdr = RtlSdr(device_index)
         sdr.device = device
         sdr.device_index = device_index
         sdr.sample_rate = args.sample_rate
         sdr.center_freq = args.center_freq
-        sdr.gain = args.gain
+        try:
+            sdr.gain = float(args.gain)
+        except ValueError:
+            sdr.gain = args.gain
 
         # create outfile
-        csv_path = f"{analyze_start:%Y-%m-%dT%H%M%S}-{device}.csv"
+        os.makedirs("data", exist_ok=True)
+        csv_path = f"data/{analyze_start:%Y-%m-%dT%H%M%S}-{device}.csv"
         csv_file = open(csv_path, "w")
         csv_consumer = CsvConsumer(csv_file)
+        csv_stdout_consumer = CsvConsumer(sys.stdout)
 
         # create analyzers
         analyzer = SignalAnalyzer(sdr, **args.__dict__)
         analyzer.callbacks.append(csv_consumer.add)
+        analyzer.callbacks.append(csv_stdout_consumer.add)
+        analyzer.callbacks.append(signal_matcher.add)
         analyzer.callbacks.append(lambda sdr, signal: logger.info(
             f"SDR '{sdr.device}' received {signal}"))
         analyzers.append(analyzer)

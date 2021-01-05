@@ -2,7 +2,7 @@
 from rtlsdr import RtlSdr
 import logging
 import scipy.signal
-from radiotracking import Signal
+from radiotracking import Signal, from_dB
 from threading import Thread
 import datetime
 import numpy as np
@@ -17,7 +17,7 @@ class SignalAnalyzer(Thread):
         fft_nperseg: int,
         fft_window,
         signal_min_duration: float,
-        signal_threshold: float,
+        signal_threshold_db: float,
         signal_padding: float,
         sdr_callback_length: int = None,
         **kwargs,
@@ -30,7 +30,7 @@ class SignalAnalyzer(Thread):
         self.fft_nperseg = fft_nperseg
         self.fft_window = fft_window
         self.signal_min_duration = signal_min_duration
-        self.signal_threshold = signal_threshold
+        self.signal_threshold = from_dB(signal_threshold_db)
         self.sdr_callback_length = sdr_callback_length
 
         # test empty spectorgram
