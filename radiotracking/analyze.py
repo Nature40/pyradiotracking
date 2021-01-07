@@ -1,4 +1,3 @@
-
 from rtlsdr import RtlSdr
 import logging
 import scipy.signal
@@ -44,16 +43,10 @@ class SignalAnalyzer(Thread):
             return_onesided=False,
         )
 
-        self.sample_duration = times[0]
-
-        # compute numeric values for time constrains
-        self.signal_padding_num = int(signal_padding / self.sample_duration)
-        self.signal_min_duration_num = int(
-            signal_min_duration / self.sample_duration)
-
         self.callbacks = [lambda sdr, signal: logger.debug(signal)]
 
     def run(self):
+        self._time = datetime.datetime.now()
         self.sdr.read_samples_async(
             self.process_samples,
             self.sdr_callback_length,
@@ -79,11 +72,13 @@ class SignalAnalyzer(Thread):
             return_onesided=False,
         )
 
-        ts_start = ts_recv - \
-            datetime.timedelta(seconds=len(times) * self.sample_duration)
+        ts_start = ts_recv - datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
 
+        ts = datetime.datetime.now()
         signals = self.extract_signals(freqs, times, spectrogram, ts_start)
         filtered = self.filter_shadow_signals(signals)
+        logger.debug(f"analysing signals takes {datetime.datetime.now() - ts}")
+
         [self.consume_signal(s) for s in filtered]
         self._spectrogram_last = spectrogram
 
@@ -92,20 +87,20 @@ class SignalAnalyzer(Thread):
 
     def filter_shadow_signals(self, signals):
         def is_shadow_of(sig: Signal, signals: List[Signal]) -> Union[None, int]:
-            """Compute shadow status of received signals. 
+            """Compute shadow status of received signals.
             A shadow signal occurs at the same datetime, but with lower power, often in neighbour frequencies.
 
             Args:
                 sig (Signal): The signal to analyse.
-                signals (List[Signal]): List of signals to compare to. 
+                signals (List[Signal]): List of signals to compare to.
 
             Returns:
                 Union[None, int]: index in signals list, if a shadow of another signal; None if not a shadow.
             """
             # iterate through all other signals
             for i, fsig in enumerate(signals):
-                sig_ts_mid = sig.ts + datetime.timedelta(seconds=sig.duration_s/2.0)
-                
+                sig_ts_mid = sig.ts + datetime.timedelta(seconds=sig.duration_s / 2.0)
+
                 # if fsig starts later than middle of sig, ignore
                 if sig_ts_mid < fsig.ts:
                     continue
@@ -122,8 +117,7 @@ class SignalAnalyzer(Thread):
         signals_status = [is_shadow_of(sig, signals) for sig in signals]
         logger.debug(f"shadow list: {signals_status}")
 
-        return [sig for sig, shadow in zip(signals, signals_status) if shadow is None] 
-
+        return [sig for sig, shadow in zip(signals, signals_status) if shadow is None]
 
     def extract_signals(self, freqs, times, spectrogram, ts_start):
         """Extract plateaus from spectogram data.
@@ -132,9 +126,11 @@ class SignalAnalyzer(Thread):
         freqs -- spectogram frequency offsets
         times -- spectogram discrete times
         spectrogram -- 2d spectrogram data
-        ts_start -- spectogram start time 
+        ts_start -- spectogram start time
         """
         signals = []
+
+        signal_min_duration_num = self.signal_min_duration / (times[1] - times[0])
 
         # iterate over all frequencies
         for fi, fft in enumerate(spectrogram):
@@ -142,7 +138,7 @@ class SignalAnalyzer(Thread):
             ti_skip = 0
 
             # jump over all power values in signal_min_duration_num distance
-            for ti in range(0, len(fft), int(self.signal_min_duration_num)):
+            for ti in range(0, len(fft), max(0, int(signal_min_duration_num))):
                 # skip values already inspected during a signal
                 if ti < ti_skip:
                     continue
@@ -175,22 +171,26 @@ class SignalAnalyzer(Thread):
 
                 # skip signal, if it laps into next spectogram
                 if end == len(fft):
-                    logger.debug(
-                        "signal overlaps to next spectogram, skipping")
+                    logger.debug("signal overlaps to next spectogram, skipping")
                     continue
 
                 # compute duration and skip, if too short
-                duration_s = (end - start) * self.sample_duration
+                end_dt = times[end]
+                # if start has negative index
+                if start < 0:
+                    start_dt = -times[-start]
+                else:
+                    start_dt = times[start]
+
+                duration_s = end_dt - start_dt
                 if duration_s < self.signal_min_duration:
                     continue
-                ts = ts_start + \
-                    datetime.timedelta(seconds=start * self.sample_duration)
+                ts = ts_start + datetime.timedelta(seconds=start_dt)
 
                 # extract data
                 if start < 0:
                     # data = self._spectrogram_last[fi][start:] + fft[:end]
-                    data = np.concatenate((
-                        self._spectrogram_last[fi][start:], fft[:end]))
+                    data = np.concatenate((self._spectrogram_last[fi][start:], fft[:end]))
                 else:
                     data = fft[start:end]
 

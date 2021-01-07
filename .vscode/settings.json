@@ -1,0 +1,12 @@
+{
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length=200"
+    ],
+    "python.linting.banditEnabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.linting.flake8Args": [
+        "--ignore=E501,W503"
+    ],
+    "python.linting.mypyEnabled": true,
+}

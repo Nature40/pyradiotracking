@@ -6,17 +6,18 @@ from si_prefix import si_format
 def dB(val):
     return 10 * np.log10(val)
 
+
 def from_dB(dB):
-    return 10 ** (dB/10)
+    return 10 ** (dB / 10)
 
 
 class Signal:
     def __init__(
-            self,
-            ts: datetime.datetime,
-            frequency: float,
-            duration_s: float,
-            data=None,
+        self,
+        ts: datetime.datetime,
+        frequency: float,
+        duration_s: float,
+        data=None,
     ):
         if isinstance(ts, datetime.datetime):
             self.ts = ts
@@ -33,7 +34,7 @@ class Signal:
     @property
     def data_padded(self):
         if self.data_padding:
-            return self.data[self.data_padding:-self.data_padding]
+            return self.data[self.data_padding : -self.data_padding]
         else:
             return self.data
 
@@ -93,4 +94,4 @@ class Signal:
         return dict(zip(self.header, self.as_list))
 
     def __str__(self):
-        return f"[Signal {self.frequency/1000/1000} MHz, {(self.duration_s * 100):5.2} ms, {self.ts}]"
+        return f"[Signal {self.frequency/1000/1000} MHz, {self.duration_s:.2} s, {self.ts}]"
