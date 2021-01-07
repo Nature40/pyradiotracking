@@ -78,7 +78,7 @@ class Signal:
     @property
     def as_list(self):
         ret = [
-            f"{self.ts:%Y-%m-%dT%H%M%S}",
+            f"{self.ts:%Y-%m-%dT%H%M%S.%f}",
             self.frequency / 1000 / 1000,
             self.duration_s * 100,
             self.min,
@@ -94,3 +94,6 @@ class Signal:
 
     def __repr__(self):
         return f"Signal(\"{self.ts}\", {self.frequency}, {self.duration_s:13}, {self.max})"
+
+    def __str__(self):
+        return f"[Signal {self.frequency/1000/1000} MHz, {(self.duration_s * 100):5.2} ms, {self.ts}]"

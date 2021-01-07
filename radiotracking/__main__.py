@@ -59,7 +59,7 @@ analysis_options.add_argument("-w", "--fft_window",
                               type=eval,
                               default="'boxcar'")
 analysis_options.add_argument("-t", "--signal_threshold_db",
-                              help="lower limit for signal intensity (dBW)",
+                              help="lower limit for signal intensity (dBW), default: -50.0",
                               type=float,
                               default=-50.0)
 analysis_options.add_argument("-l", "--signal_min_duration",

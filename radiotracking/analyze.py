@@ -81,11 +81,65 @@ class SignalAnalyzer(Thread):
         ts_start = ts_recv - \
             datetime.timedelta(seconds=len(times) * self.sample_duration)
 
-        self.extract_signals(freqs, times, spectrogram, ts_start)
+        signals = self.extract_signals(freqs, times, spectrogram, ts_start)
+        filtered = self.filter_shadow_signals(signals)
+        [self.consume_signal(s) for s in filtered]
         self._spectrogram_last = spectrogram
 
     def consume_signal(self, signal):
         [callback(self.sdr, signal) for callback in self.callbacks]
+
+    def filter_shadow_signals(self, signals):
+        # a shadow signal is one with 
+        # a) significant time overlap with another signal of 
+        # b) a higher max dBW.
+
+        filtered = []
+
+        for sig in signals:
+            def match_filtered(sig, filtered):
+                is_shadow = False
+                has_shadow = None
+            
+                # check every signal against all previous non-shadow signals 
+                for i, fsig in enumerate(filtered):
+                    # check if middle of signal is in this filtered signal
+                    sig_ts_mid = sig.ts + datetime.timedelta(seconds=sig.duration_s/2.0)
+                    fsig_ts_start = fsig.ts
+                    fsig_ts_end = fsig.ts + datetime.timedelta(seconds=fsig.duration_s)
+
+                    # middle of sig is inbetween start and end of fsig
+                    if fsig_ts_start < sig_ts_mid and fsig_ts_end > sig_ts_mid:
+                        # if fsig is louder, sig is a shadow
+                        if fsig.max > sig.max:
+                            logger.debug(f"             {sig}")
+                            logger.debug(f"is shadow of {fsig}")
+                            is_shadow = True
+                        # if sig is louder, fsig is a shadow
+                        else:
+                            logger.debug(f"           {sig}")
+                            logger.debug(f"has shadow {fsig}")
+                            has_shadow = i
+                    else:
+                        logger.debug(f"                    {sig}")
+                        logger.debug(f"not at same time as {fsig}")
+                        logger.debug(f"{fsig_ts_start} < {sig_ts_mid} < {fsig_ts_end}")
+
+                return is_shadow, has_shadow
+
+            is_shadow, has_shadow = match_filtered(sig, filtered)
+            logger.debug(f"len: {len(filtered)}, has_shadow: {has_shadow}, is_shadow: {is_shadow}")
+            if has_shadow != None:
+                filtered.pop(has_shadow)
+            if not is_shadow:
+                filtered.append(sig)
+            
+            logger.debug(f"len: {len(filtered)}")
+
+        return filtered
+
+        
+
 
     def extract_signals(self, freqs, times, spectrogram, ts_start):
         """Extract plateaus from spectogram data.
@@ -157,7 +211,7 @@ class SignalAnalyzer(Thread):
                     data = fft[start:end]
 
                 signal = Signal(ts, freq, duration_s, data)
-                self.consume_signal(signal)
+                # self.consume_signal(signal)
                 signals.append(signal)
 
         return signals
