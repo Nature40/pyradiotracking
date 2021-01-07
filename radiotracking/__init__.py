@@ -92,8 +92,5 @@ class Signal:
     def as_dict(self):
         return dict(zip(self.header, self.as_list))
 
-    def __repr__(self):
-        return f"Signal(\"{self.ts}\", {self.frequency}, {self.duration_s:13}, {self.max})"
-
     def __str__(self):
         return f"[Signal {self.frequency/1000/1000} MHz, {(self.duration_s * 100):5.2} ms, {self.ts}]"

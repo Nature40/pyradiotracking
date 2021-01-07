@@ -6,6 +6,7 @@ from radiotracking import Signal, from_dB
 from threading import Thread
 import datetime
 import numpy as np
+from typing import List, Union
 
 logger = logging.getLogger(__name__)
 
@@ -90,55 +91,38 @@ class SignalAnalyzer(Thread):
         [callback(self.sdr, signal) for callback in self.callbacks]
 
     def filter_shadow_signals(self, signals):
-        # a shadow signal is one with 
-        # a) significant time overlap with another signal of 
-        # b) a higher max dBW.
+        def is_shadow_of(sig: Signal, signals: List[Signal]) -> Union[None, int]:
+            """Compute shadow status of received signals. 
+            A shadow signal occurs at the same datetime, but with lower power, often in neighbour frequencies.
 
-        filtered = []
+            Args:
+                sig (Signal): The signal to analyse.
+                signals (List[Signal]): List of signals to compare to. 
 
-        for sig in signals:
-            def match_filtered(sig, filtered):
-                is_shadow = False
-                has_shadow = None
-            
-                # check every signal against all previous non-shadow signals 
-                for i, fsig in enumerate(filtered):
-                    # check if middle of signal is in this filtered signal
-                    sig_ts_mid = sig.ts + datetime.timedelta(seconds=sig.duration_s/2.0)
-                    fsig_ts_start = fsig.ts
-                    fsig_ts_end = fsig.ts + datetime.timedelta(seconds=fsig.duration_s)
+            Returns:
+                Union[None, int]: index in signals list, if a shadow of another signal; None if not a shadow.
+            """
+            # iterate through all other signals
+            for i, fsig in enumerate(signals):
+                sig_ts_mid = sig.ts + datetime.timedelta(seconds=sig.duration_s/2.0)
+                
+                # if fsig starts later than middle of sig, ignore
+                if sig_ts_mid < fsig.ts:
+                    continue
+                # if fsig stops before middle of sig, ignore
+                if sig_ts_mid > fsig.ts + datetime.timedelta(seconds=fsig.duration_s):
+                    continue
 
-                    # middle of sig is inbetween start and end of fsig
-                    if fsig_ts_start < sig_ts_mid and fsig_ts_end > sig_ts_mid:
-                        # if fsig is louder, sig is a shadow
-                        if fsig.max > sig.max:
-                            logger.debug(f"             {sig}")
-                            logger.debug(f"is shadow of {fsig}")
-                            is_shadow = True
-                        # if sig is louder, fsig is a shadow
-                        else:
-                            logger.debug(f"           {sig}")
-                            logger.debug(f"has shadow {fsig}")
-                            has_shadow = i
-                    else:
-                        logger.debug(f"                    {sig}")
-                        logger.debug(f"not at same time as {fsig}")
-                        logger.debug(f"{fsig_ts_start} < {sig_ts_mid} < {fsig_ts_end}")
+                # if fsig is louder, we are a shadow, return index
+                if fsig.max > sig.max:
+                    return i
 
-                return is_shadow, has_shadow
+            return None
 
-            is_shadow, has_shadow = match_filtered(sig, filtered)
-            logger.debug(f"len: {len(filtered)}, has_shadow: {has_shadow}, is_shadow: {is_shadow}")
-            if has_shadow != None:
-                filtered.pop(has_shadow)
-            if not is_shadow:
-                filtered.append(sig)
-            
-            logger.debug(f"len: {len(filtered)}")
+        signals_status = [is_shadow_of(sig, signals) for sig in signals]
+        logger.debug(f"shadow list: {signals_status}")
 
-        return filtered
-
-        
+        return [sig for sig, shadow in zip(signals, signals_status) if shadow is None] 
 
 
     def extract_signals(self, freqs, times, spectrogram, ts_start):
