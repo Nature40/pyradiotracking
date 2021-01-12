@@ -4,6 +4,7 @@ import scipy.signal
 from radiotracking import Signal, from_dB, dB
 from threading import Thread
 import datetime
+import time
 import numpy as np
 from typing import List, Union
 
@@ -34,15 +35,7 @@ class SignalAnalyzer(Thread):
         self.signal_threshold = from_dB(signal_threshold_db)
         self.sdr_callback_length = sdr_callback_length
 
-        # test empty spectorgram
-        buffer = sdr.read_samples(self.sdr_callback_length)
-        _, _, self._spectrogram_last = scipy.signal.spectrogram(
-            buffer,
-            window=self.fft_window,
-            nperseg=self.fft_nperseg,
-            fs=self.sdr.sample_rate,
-            return_onesided=False,
-        )
+        self._spectrogram_last = None
         self._ts = None
 
         self.callbacks = [lambda sdr, signal: logger.debug(signal)]
@@ -62,35 +55,56 @@ class SignalAnalyzer(Thread):
         buffer -- Buffer with read samples
         context -- Context as handed back from read_samples_async, unused
         """
-
         ts_recv = datetime.datetime.now()
         buffer_len_dt = datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
 
         # initialize / advance clock
         if not self._ts:
-            ts_start = ts_recv - buffer_len_dt
             self._ts = ts_recv
         else:
-            ts_start = self._ts
-            self._ts += datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
+            self._ts += buffer_len_dt
 
         clock_drift = (ts_recv - self._ts).total_seconds()
-        logger.debug(f"received {len(buffer)} samples, total clock drift: {clock_drift:.2} s")
-        if clock_drift > buffer_len_dt.total_seconds():
-            logger.warn(f"total clock drift ({clock_drift:.5} s) is larger than one block, signal detection is degraded.")
+        logger.info(f"received {len(buffer)} samples, total clock drift: {clock_drift:.2} s")
 
+        # warn on clock drift and resync
+        if clock_drift > 2 * buffer_len_dt.total_seconds():
+            logger.warn(f"total clock drift ({clock_drift:.5} s) is larger than two blocks, signal detection is degraded. Resyncing...")
+            self._ts = ts_recv
+            self._spectrogram_last = None
+
+        ts_start = self._ts - buffer_len_dt
+
+        bench_start = time.time()
         freqs, times, spectrogram = scipy.signal.spectrogram(
             buffer,
+            fs=self.sdr.sample_rate,
             window=self.fft_window,
             nperseg=self.fft_nperseg,
-            fs=self.sdr.sample_rate,
+            noverlap=0,
             return_onesided=False,
         )
 
+        bench_spectrogram = time.time()
+
         signals = self.extract_signals(freqs, times, spectrogram, ts_start)
+        bench_extract = time.time()
+
         filtered = self.filter_shadow_signals(signals)
+        bench_filter = time.time()
 
         [self.consume_signal(s) for s in filtered]
+        bench_consume = time.time()
+
+        logger.info(
+            f"filtered {len(filtered)} / {len(signals)} signals, timings: "
+            + f"block len: {(buffer_len_dt.total_seconds())*100:.1f} ms, "
+            + f"total: {(bench_consume-bench_start)*100:.1f} ms ("
+            + f"spectogram: {(bench_spectrogram - bench_start)*100:.1f} ms, "
+            + f"extract: {(bench_extract-bench_spectrogram)*100:.1f} ms, "
+            + f"filter: {(bench_filter-bench_extract)*100:.1f} ms, "
+            + f"consume: {(bench_consume-bench_filter)*100:.1f} ms)"
+        )
         self._spectrogram_last = spectrogram
 
     def consume_signal(self, signal):
@@ -161,7 +175,8 @@ class SignalAnalyzer(Thread):
 
                 # loop down until threshold is undershot
                 start = ti
-                while start >= -len(self._spectrogram_last):
+                start_min = 0 if self._spectrogram_last is None else -len(self._spectrogram_last[0]) + 1
+                while start > start_min:
                     if start < 0:
                         power = self._spectrogram_last[fi, start]
                     else:

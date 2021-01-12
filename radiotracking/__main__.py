@@ -99,7 +99,7 @@ if __name__ == "__main__":
         analyzer.callbacks.append(csv_consumer.add)
         analyzer.callbacks.append(csv_stdout_consumer.add)
         analyzer.callbacks.append(signal_matcher.add)
-        analyzer.callbacks.append(lambda sdr, signal: logger.info(f"SDR '{sdr.device}' received {signal}"))
+        analyzer.callbacks.append(lambda sdr, signal: logger.debug(f"SDR '{sdr.device}' received {signal}"))
         analyzers.append(analyzer)
 
     def handle(sig, frame):
