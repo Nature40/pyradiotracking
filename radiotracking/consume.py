@@ -1,5 +1,3 @@
-
-import logging
 import csv
 import rtlsdr
 from radiotracking import Signal

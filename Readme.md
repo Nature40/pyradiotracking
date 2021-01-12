@@ -41,3 +41,7 @@ signal analysis:
   -p SIGNAL_PADDING, --signal_padding SIGNAL_PADDING
                         padding to apply when analysing signal (s), default: 0.001
 ```
+
+### Caveats
+
+- The sample rate of RTL-SDR is [limited to certain numbers](https://github.com/osmocom/rtl-sdr/blob/0847e93e0869feab50fd27c7afeb85d78ca04631/src/librtlsdr.c#L1103-L1108) in 225 kHz - 3.2 GHz, excluding 300 kHz - 900 kHz.

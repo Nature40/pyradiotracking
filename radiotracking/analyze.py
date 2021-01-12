@@ -1,7 +1,7 @@
 from rtlsdr import RtlSdr
 import logging
 import scipy.signal
-from radiotracking import Signal, from_dB
+from radiotracking import Signal, from_dB, dB
 from threading import Thread
 import datetime
 import numpy as np
@@ -16,9 +16,9 @@ class SignalAnalyzer(Thread):
         sdr: RtlSdr,
         fft_nperseg: int,
         fft_window,
-        signal_min_duration: float,
+        signal_min_duration_ms: float,
+        signal_max_duration_ms: float,
         signal_threshold_db: float,
-        signal_padding: float,
         sdr_callback_length: int = None,
         **kwargs,
     ):
@@ -29,19 +29,22 @@ class SignalAnalyzer(Thread):
         self.sdr = sdr
         self.fft_nperseg = fft_nperseg
         self.fft_window = fft_window
-        self.signal_min_duration = signal_min_duration
+        self.signal_min_duration = signal_min_duration_ms / 1000
+        self.signal_max_duration = signal_max_duration_ms / 1000
         self.signal_threshold = from_dB(signal_threshold_db)
         self.sdr_callback_length = sdr_callback_length
 
         # test empty spectorgram
-        buffer = sdr.read_samples()
-        freqs, times, self._spectrogram_last = scipy.signal.spectrogram(
+        buffer = sdr.read_samples(self.sdr_callback_length)
+        _, _, self._spectrogram_last = scipy.signal.spectrogram(
             buffer,
             window=self.fft_window,
             nperseg=self.fft_nperseg,
             fs=self.sdr.sample_rate,
             return_onesided=False,
         )
+        self._ts_recv_last = None
+        self._skipped_samples_sum = 0
 
         self.callbacks = [lambda sdr, signal: logger.debug(signal)]
 
@@ -62,7 +65,16 @@ class SignalAnalyzer(Thread):
         context -- Context as handed back from read_samples_async, unused
         """
         ts_recv = datetime.datetime.now()
-        logger.debug(f"received {len(buffer)} samples at {ts_recv}")
+        ts_start = ts_recv - datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
+
+        # compute difference of computed and actual time and derive skipped samples
+        if self._ts_recv_last:
+            ts_diff = ts_start - self._ts_recv_last
+            samples_diff = int(ts_diff.total_seconds() * self.sdr.sample_rate)
+            self._skipped_samples_sum += samples_diff
+            logger.debug(f"received {len(buffer)} samples, difference to expeted: {samples_diff}, sum: {self._skipped_samples_sum}")
+            if self._skipped_samples_sum > self.sdr.sample_rate:
+                logger.warn(f"skipped more than one block of samples (sum: {self._skipped_samples_sum}), signal quality is degraded.")
 
         freqs, times, spectrogram = scipy.signal.spectrogram(
             buffer,
@@ -72,15 +84,12 @@ class SignalAnalyzer(Thread):
             return_onesided=False,
         )
 
-        ts_start = ts_recv - datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
-
-        ts = datetime.datetime.now()
         signals = self.extract_signals(freqs, times, spectrogram, ts_start)
         filtered = self.filter_shadow_signals(signals)
-        logger.debug(f"analysing signals takes {datetime.datetime.now() - ts}")
 
         [self.consume_signal(s) for s in filtered]
         self._spectrogram_last = spectrogram
+        self._ts_recv_last = ts_recv
 
     def consume_signal(self, signal):
         [callback(self.sdr, signal) for callback in self.callbacks]
@@ -134,11 +143,12 @@ class SignalAnalyzer(Thread):
 
         # iterate over all frequencies
         for fi, fft in enumerate(spectrogram):
+            freq_avg_dBW = None
             freq = freqs[fi] + self.sdr.center_freq
             ti_skip = 0
 
             # jump over all power values in signal_min_duration_num distance
-            for ti in range(0, len(fft), max(0, int(signal_min_duration_num))):
+            for ti in range(0, len(fft), max(1, int(signal_min_duration_num))):
                 # skip values already inspected during a signal
                 if ti < ti_skip:
                     continue
@@ -185,6 +195,9 @@ class SignalAnalyzer(Thread):
                 duration_s = end_dt - start_dt
                 if duration_s < self.signal_min_duration:
                     continue
+                if duration_s > self.signal_max_duration:
+                    logger.debug(f"signal duration too long ({duration_s * 1000} > {self.signal_max_duration*1000} ms), skipping")
+                    continue
                 ts = ts_start + datetime.timedelta(seconds=start_dt)
 
                 # extract data
@@ -194,8 +207,16 @@ class SignalAnalyzer(Thread):
                 else:
                     data = fft[start:end]
 
-                signal = Signal(ts, freq, duration_s, data)
-                # self.consume_signal(signal)
+                if not freq_avg_dBW:
+                    freq_avg_dBW = np.mean(dB(fft))
+
+                max_dBW = dB(np.max(data))
+                min_dBW = dB(np.min(data))
+                avg_dBW = np.mean(dB(data))
+                std_dB = np.std(dB(data))
+                snr_dB = avg_dBW - freq_avg_dBW
+
+                signal = Signal(ts, freq, duration_s, min_dBW, max_dBW, avg_dBW, std_dB, snr_dB)
                 signals.append(signal)
 
         return signals
