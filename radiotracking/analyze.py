@@ -43,13 +43,11 @@ class SignalAnalyzer(Thread):
             fs=self.sdr.sample_rate,
             return_onesided=False,
         )
-        self._ts_recv_last = None
-        self._skipped_samples_sum = 0
+        self._ts = None
 
         self.callbacks = [lambda sdr, signal: logger.debug(signal)]
 
     def run(self):
-        self._time = datetime.datetime.now()
         self.sdr.read_samples_async(
             self.process_samples,
             self.sdr_callback_length,
@@ -64,17 +62,22 @@ class SignalAnalyzer(Thread):
         buffer -- Buffer with read samples
         context -- Context as handed back from read_samples_async, unused
         """
-        ts_recv = datetime.datetime.now()
-        ts_start = ts_recv - datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
 
-        # compute difference of computed and actual time and derive skipped samples
-        if self._ts_recv_last:
-            ts_diff = ts_start - self._ts_recv_last
-            samples_diff = int(ts_diff.total_seconds() * self.sdr.sample_rate)
-            self._skipped_samples_sum += samples_diff
-            logger.debug(f"received {len(buffer)} samples, difference to expeted: {samples_diff}, sum: {self._skipped_samples_sum}")
-            if self._skipped_samples_sum > self.sdr.sample_rate:
-                logger.warn(f"skipped more than one block of samples (sum: {self._skipped_samples_sum}), signal quality is degraded.")
+        ts_recv = datetime.datetime.now()
+        buffer_len_dt = datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
+
+        # initialize / advance clock
+        if not self._ts:
+            ts_start = ts_recv - buffer_len_dt
+            self._ts = ts_recv
+        else:
+            ts_start = self._ts
+            self._ts += datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
+
+        clock_drift = (ts_recv - self._ts).total_seconds()
+        logger.debug(f"received {len(buffer)} samples, total clock drift: {clock_drift:.2} s")
+        if clock_drift > buffer_len_dt.total_seconds():
+            logger.warn(f"total clock drift ({clock_drift:.5} s) is larger than one block, signal detection is degraded.")
 
         freqs, times, spectrogram = scipy.signal.spectrogram(
             buffer,
@@ -89,7 +92,6 @@ class SignalAnalyzer(Thread):
 
         [self.consume_signal(s) for s in filtered]
         self._spectrogram_last = spectrogram
-        self._ts_recv_last = ts_recv
 
     def consume_signal(self, signal):
         [callback(self.sdr, signal) for callback in self.callbacks]
