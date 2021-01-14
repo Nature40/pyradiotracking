@@ -20,6 +20,7 @@ class SignalAnalyzer(Thread):
         signal_min_duration_ms: float,
         signal_max_duration_ms: float,
         signal_threshold_db: float,
+        snr_threshold_db: float,
         sdr_callback_length: int = None,
         **kwargs,
     ):
@@ -33,6 +34,7 @@ class SignalAnalyzer(Thread):
         self.signal_min_duration = signal_min_duration_ms / 1000
         self.signal_max_duration = signal_max_duration_ms / 1000
         self.signal_threshold = from_dB(signal_threshold_db)
+        self.snr_threshold = from_dB(snr_threshold_db)
         self.sdr_callback_length = sdr_callback_length
 
         self._spectrogram_last = None
@@ -159,7 +161,8 @@ class SignalAnalyzer(Thread):
 
         # iterate over all frequencies
         for fi, fft in enumerate(spectrogram):
-            freq_avg_dBW = None
+            # set freq_avg to None to allow lazy evaluation
+            freq_avg = None
             freq = freqs[fi] + self.sdr.center_freq
             ti_skip = 0
 
@@ -173,6 +176,14 @@ class SignalAnalyzer(Thread):
                 if fft[ti] < self.signal_threshold:
                     continue
 
+                # lazy computation for freq_avg
+                if freq_avg is None:
+                    freq_avg = np.mean(fft)
+
+                # check if snr of sample is below threshold
+                if fft[ti] / freq_avg < self.snr_threshold:
+                    continue
+
                 # loop down until threshold is undershot
                 start = ti
                 start_min = 0 if self._spectrogram_last is None else -len(self._spectrogram_last[0]) + 1
@@ -182,7 +193,12 @@ class SignalAnalyzer(Thread):
                     else:
                         power = fft[start]
 
+                    # check if power of signal over threshold
                     if power < self.signal_threshold:
+                        break
+
+                    # check if snr of sample is below threshold
+                    if power / freq_avg < self.snr_threshold:
                         break
 
                     start -= 1
@@ -191,6 +207,11 @@ class SignalAnalyzer(Thread):
                 end = ti
                 while end < len(fft):
                     if fft[end] < self.signal_threshold:
+                        ti_skip = end
+                        break
+
+                    # check if snr of sample is below threshold
+                    if fft[end] / freq_avg < self.snr_threshold:
                         ti_skip = end
                         break
 
@@ -219,19 +240,16 @@ class SignalAnalyzer(Thread):
 
                 # extract data
                 if start < 0:
-                    # data = self._spectrogram_last[fi][start:] + fft[:end]
                     data = np.concatenate((self._spectrogram_last[fi][start:], fft[:end]))
                 else:
                     data = fft[start:end]
 
-                if not freq_avg_dBW:
-                    freq_avg_dBW = np.mean(dB(fft))
-
                 max_dBW = dB(np.max(data))
                 min_dBW = dB(np.min(data))
-                avg_dBW = np.mean(dB(data))
+                avg = np.mean(data)
+                avg_dBW = dB(avg)
                 std_dB = np.std(dB(data))
-                snr_dB = avg_dBW - freq_avg_dBW
+                snr_dB = dB(avg / freq_avg)
 
                 signal = Signal(ts, freq, duration_s, min_dBW, max_dBW, avg_dBW, std_dB, snr_dB)
                 signals.append(signal)

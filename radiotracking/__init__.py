@@ -51,7 +51,7 @@ class Signal:
         ret = [
             f"{self.ts:%Y-%m-%dT%H%M%S.%f}",
             self.frequency / 1000 / 1000,
-            self.duration_s * 100,
+            self.duration_s * 1000,
             self.min,
             self.max,
             self.avg,
@@ -68,4 +68,4 @@ class Signal:
         return f"Signal({self.ts}, {self.frequency}, {self.duration_s}, {self.min}, {self.max}, {self.avg}, {self.std}, {self.snr})"
 
     def __str__(self):
-        return f"Signal<{self.frequency/1000/1000} MHz, {self.duration_s*100:.2} ms, {self.max} dBW>"
+        return f"Signal<{self.frequency/1000/1000} MHz, {self.duration_s*1000:.2} ms, {self.max} dBW>"

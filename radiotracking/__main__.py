@@ -35,6 +35,7 @@ analysis_options = parser.add_argument_group("signal analysis")
 analysis_options.add_argument("-n", "--fft_nperseg", help="fft number of samples", default=None, type=int)
 analysis_options.add_argument("-w", "--fft_window", help="fft window function, see https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html", type=eval, default="'hamming'")
 analysis_options.add_argument("-t", "--signal_threshold_db", help="lower limit for signal intensity (dBW), default: -50.0", type=float, default=-50.0)
+analysis_options.add_argument("-r", "--snr_threshold_db", help="lower limit for signal-to-noise ratio (dB), default: 10.0", type=float, default=10.0)
 analysis_options.add_argument("-l", "--signal_min_duration_ms", help="lower limit for signal duration (ms), default: 8", type=float, default=8)
 analysis_options.add_argument("-u", "--signal_max_duration_ms", help="upper limit for signal duration (ms), default: 40", type=float, default=40)
 
