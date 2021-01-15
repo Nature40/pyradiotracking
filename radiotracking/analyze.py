@@ -67,11 +67,11 @@ class SignalAnalyzer(Thread):
             self._ts += buffer_len_dt
 
         clock_drift = (ts_recv - self._ts).total_seconds()
-        logger.info(f"received {len(buffer)} samples, total clock drift: {clock_drift:.2} s")
+        logger.info(f"SDR '{self.sdr.device}' received {len(buffer)} samples, total clock drift: {clock_drift:.2} s")
 
         # warn on clock drift and resync
         if clock_drift > 2 * buffer_len_dt.total_seconds():
-            logger.warn(f"total clock drift ({clock_drift:.5} s) is larger than two blocks, signal detection is degraded. Resyncing...")
+            logger.warn(f"SDR '{self.sdr.device}' total clock drift ({clock_drift:.5} s) is larger than two blocks, signal detection is degraded. Resyncing...")
             self._ts = ts_recv
             self._spectrogram_last = None
 

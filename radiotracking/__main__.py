@@ -93,12 +93,10 @@ if __name__ == "__main__":
         csv_path = f"data/{analyze_start:%Y-%m-%dT%H%M%S}-{device}.csv"
         csv_file = open(csv_path, "w")
         csv_consumer = CsvConsumer(csv_file)
-        csv_stdout_consumer = CsvConsumer(sys.stdout)
 
         # create analyzers
         analyzer = SignalAnalyzer(sdr, **args.__dict__)
         analyzer.callbacks.append(csv_consumer.add)
-        analyzer.callbacks.append(csv_stdout_consumer.add)
         analyzer.callbacks.append(signal_matcher.add)
         analyzer.callbacks.append(lambda sdr, signal: logger.debug(f"SDR '{sdr.device}' received {signal}"))
         analyzers.append(analyzer)
