@@ -47,6 +47,20 @@ class Signal:
     ]
 
     @property
+    def raw_list(self):
+        ret = [
+            self.ts,
+            self.frequency,
+            self.duration_s,
+            self.min,
+            self.max,
+            self.avg,
+            self.std,
+            self.snr,
+        ]
+        return ret
+
+    @property
     def as_list(self):
         ret = [
             f"{self.ts:%Y-%m-%dT%H%M%S.%f}",

@@ -2,7 +2,7 @@
 
 from rtlsdr.rtlsdr import RtlSdr
 from radiotracking.analyze import SignalAnalyzer
-from radiotracking.consume import CsvConsumer
+from radiotracking.consume import CsvConsumer, MQTTConsumer
 import signal
 import datetime
 import sys
@@ -20,24 +20,30 @@ parser = argparse.ArgumentParser(
 )
 # generic options
 parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
-parser.add_argument("-p", "--path", help="data export path", default="data", type=str)
 
 # sdr / sampling options
 sdr_options = parser.add_argument_group("software-defined radio (SDR)")
 sdr_options.add_argument("-d", "--device", help="device indexes or names, default: 0", default=[0], nargs="*")
-sdr_options.add_argument("-f", "--center_freq", help="center frequency to tune to (Hz), default: 150100001", default=150100001, type=int)
-sdr_options.add_argument("-s", "--sample_rate", help="sample rate (Hz), default: 300000", default=300000, type=int)
-sdr_options.add_argument("-b", "--sdr_callback_length", help="number of samples to read per batch", default=None, type=int)
+sdr_options.add_argument("-f", "--center-freq", help="center frequency to tune to (Hz), default: 150100001", default=150100001, type=int)
+sdr_options.add_argument("-s", "--sample-rate", help="sample rate (Hz), default: 300000", default=300000, type=int)
+sdr_options.add_argument("-b", "--sdr-callback-length", help="number of samples to read per batch", default=None, type=int)
 sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6, default: 49.6", default="49.6")
 
 # analysis options
 analysis_options = parser.add_argument_group("signal analysis")
-analysis_options.add_argument("-n", "--fft_nperseg", help="fft number of samples", default=None, type=int)
-analysis_options.add_argument("-w", "--fft_window", help="fft window function, see https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html", type=eval, default="'hamming'")
-analysis_options.add_argument("-t", "--signal_threshold_db", help="lower limit for signal intensity (dBW), default: -50.0", type=float, default=-50.0)
-analysis_options.add_argument("-r", "--snr_threshold_db", help="lower limit for signal-to-noise ratio (dB), default: 10.0", type=float, default=10.0)
-analysis_options.add_argument("-l", "--signal_min_duration_ms", help="lower limit for signal duration (ms), default: 8", type=float, default=8)
-analysis_options.add_argument("-u", "--signal_max_duration_ms", help="upper limit for signal duration (ms), default: 40", type=float, default=40)
+analysis_options.add_argument("-n", "--fft-nperseg", help="fft number of samples", default=None, type=int)
+analysis_options.add_argument("-w", "--fft-window", help="fft window function, see https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html", type=eval, default="'hamming'")
+analysis_options.add_argument("-t", "--signal-threshold-db", help="lower limit for signal intensity (dBW), default: -50.0", type=float, default=-50.0)
+analysis_options.add_argument("-r", "--snr-threshold-db", help="lower limit for signal-to-noise ratio (dB), default: 10.0", type=float, default=10.0)
+analysis_options.add_argument("-l", "--signal-min-duration-ms", help="lower limit for signal duration (ms), default: 8", type=float, default=8)
+analysis_options.add_argument("-u", "--signal-max-duration-ms", help="upper limit for signal duration (ms), default: 40", type=float, default=40)
+
+# data publishing options
+publish_options = parser.add_argument_group("data publishing")
+publish_options.add_argument("--csv-path", help="csv folder path", default="data")
+publish_options.add_argument("--mqtt", help="enable mqtt data publishing", action="store_true")
+publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker", default="localhost")
+publish_options.add_argument("--mqtt-port", help="port of mqtt broker", default=1883, type=int)
 
 
 def create_analyzer(device, device_index, arg_dict, ts):
@@ -51,14 +57,16 @@ def create_analyzer(device, device_index, arg_dict, ts):
     except ValueError:
         sdr.gain = args.gain
 
-    # create outfile
-    csv_path = f"{args.path}/{ts:%Y-%m-%dT%H%M%S}-{device}.csv"
-    csv_file = open(csv_path, "w")
-    csv_consumer = CsvConsumer(csv_file)
-
     # create analyzers
     analyzer = SignalAnalyzer(sdr, **arg_dict)
+
+    csv_consumer = CsvConsumer(f"{args.csv_path}/{ts:%Y-%m-%dT%H%M%S}-{device}.csv")
     analyzer.callbacks.append(csv_consumer.add)
+
+    if args.mqtt:
+        mqtt_consumer = MQTTConsumer(args.mqtt_host, args.mqtt_port)
+        analyzer.callbacks.append(mqtt_consumer.add)
+
     analyzer.callbacks.append(lambda sdr, signal: logger.debug(f"SDR '{sdr.device}' received {signal}"))
 
     return analyzer
@@ -97,7 +105,7 @@ if __name__ == "__main__":
         logger.info(f"Using devices {device_indexes} by serials {args.device}")
 
     ts = datetime.datetime.now()
-    os.makedirs(args.path, exist_ok=True)
+    os.makedirs(args.csv_path, exist_ok=True)
     analyzers = []
 
     for device, device_index in zip(args.device, device_indexes):
