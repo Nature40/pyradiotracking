@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 
 from rtlsdr.rtlsdr import RtlSdr
-from si_prefix import si_format
 from radiotracking.analyze import SignalAnalyzer
-from radiotracking.consume import CsvConsumer, SignalMatcher
+from radiotracking.consume import CsvConsumer
 import signal
 import datetime
 import sys
@@ -21,12 +20,13 @@ parser = argparse.ArgumentParser(
 )
 # generic options
 parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
+parser.add_argument("-p", "--path", help="data export path", default="data", type=str)
 
 # sdr / sampling options
 sdr_options = parser.add_argument_group("software-defined radio (SDR)")
 sdr_options.add_argument("-d", "--device", help="device indexes or names, default: 0", default=[0], nargs="*")
 sdr_options.add_argument("-f", "--center_freq", help="center frequency to tune to (Hz), default: 150100001", default=150100001, type=int)
-sdr_options.add_argument("-s", "--sample_rate", help="sample rate (Hz), default: 2048000", default=2048000, type=int)
+sdr_options.add_argument("-s", "--sample_rate", help="sample rate (Hz), default: 300000", default=300000, type=int)
 sdr_options.add_argument("-b", "--sdr_callback_length", help="number of samples to read per batch", default=None, type=int)
 sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6, default: 49.6", default="49.6")
 
@@ -40,6 +40,30 @@ analysis_options.add_argument("-l", "--signal_min_duration_ms", help="lower limi
 analysis_options.add_argument("-u", "--signal_max_duration_ms", help="upper limit for signal duration (ms), default: 40", type=float, default=40)
 
 
+def create_analyzer(device, device_index, arg_dict, ts):
+    sdr = RtlSdr(device_index)
+    sdr.device = device
+    sdr.device_index = device_index
+    sdr.sample_rate = args.sample_rate
+    sdr.center_freq = args.center_freq
+    try:
+        sdr.gain = float(args.gain)
+    except ValueError:
+        sdr.gain = args.gain
+
+    # create outfile
+    csv_path = f"{args.path}/{ts:%Y-%m-%dT%H%M%S}-{device}.csv"
+    csv_file = open(csv_path, "w")
+    csv_consumer = CsvConsumer(csv_file)
+
+    # create analyzers
+    analyzer = SignalAnalyzer(sdr, **arg_dict)
+    analyzer.callbacks.append(csv_consumer.add)
+    analyzer.callbacks.append(lambda sdr, signal: logger.debug(f"SDR '{sdr.device}' received {signal}"))
+
+    return analyzer
+
+
 if __name__ == "__main__":
     args = parser.parse_args()
 
@@ -48,12 +72,12 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging_level)
 
     # describe configuration
-    logger.info(f"center frequency {si_format(args.center_freq, precision=3)}Hz")
-    logger.info(f"sampling rate {si_format(args.sample_rate, precision=3)}Hz")
+    logger.info(f"center frequency {args.center_freq/1000/1000:.2f}MHz")
+    logger.info(f"sampling rate {args.sample_rate/1000:.0f}kHz")
 
     frequency_min = args.center_freq - args.sample_rate / 2
     frequency_max = args.center_freq + args.sample_rate / 2
-    logger.info(f"band {si_format(frequency_min, precision=3)}Hz - {si_format(frequency_max, precision=3)}Hz")
+    logger.info(f"band {frequency_min/1000/1000:.2f}MHz - {frequency_max/1000/1000:.2f}MHz")
 
     try:
         # try to use --device as index
@@ -72,48 +96,27 @@ if __name__ == "__main__":
 
         logger.info(f"Using devices {device_indexes} by serials {args.device}")
 
-    analyze_start = datetime.datetime.now()
+    ts = datetime.datetime.now()
+    os.makedirs(args.path, exist_ok=True)
     analyzers = []
 
-    signal_matcher = SignalMatcher()
-
     for device, device_index in zip(args.device, device_indexes):
-        sdr = RtlSdr(device_index)
-        sdr.device = device
-        sdr.device_index = device_index
-        sdr.sample_rate = args.sample_rate
-        sdr.center_freq = args.center_freq
-        try:
-            sdr.gain = float(args.gain)
-        except ValueError:
-            sdr.gain = args.gain
-
-        # create outfile
-        os.makedirs("data", exist_ok=True)
-        csv_path = f"data/{analyze_start:%Y-%m-%dT%H%M%S}-{device}.csv"
-        csv_file = open(csv_path, "w")
-        csv_consumer = CsvConsumer(csv_file)
-
-        # create analyzers
-        analyzer = SignalAnalyzer(sdr, **args.__dict__)
-        analyzer.callbacks.append(csv_consumer.add)
-        analyzer.callbacks.append(signal_matcher.add)
-        analyzer.callbacks.append(lambda sdr, signal: logger.debug(f"SDR '{sdr.device}' received {signal}"))
+        analyzer = create_analyzer(device, device_index, args.__dict__, ts)
         analyzers.append(analyzer)
+
+    # Start all analyzers
+    [a.start() for a in analyzers]
+    logger.info("All analyzers started.")
 
     def handle(sig, frame):
         logging.warning(f"Caught {signal.Signals(sig).name}, terminating {len(analyzers)} analyzers.")
 
         # Stop the analyzers, and wait for completion
-        [a.stop() for a in analyzers]
+        [a.terminate() for a in analyzers]
         [a.join() for a in analyzers]
         logging.warning("Termination complete.")
 
     signal.signal(signal.SIGINT, handle)
     signal.signal(signal.SIGTERM, handle)
 
-    # Start all analyzers
-    [a.start() for a in analyzers]
-
-    logger.info("All analyzers started.")
     signal.pause()

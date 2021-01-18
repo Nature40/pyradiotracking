@@ -2,7 +2,9 @@ from rtlsdr import RtlSdr
 import logging
 import scipy.signal
 from radiotracking import Signal, from_dB, dB
-from threading import Thread
+import multiprocessing
+import subprocess
+import signal
 import datetime
 import time
 import numpy as np
@@ -11,7 +13,7 @@ from typing import List, Union
 logger = logging.getLogger(__name__)
 
 
-class SignalAnalyzer(Thread):
+class SignalAnalyzer(multiprocessing.Process):
     def __init__(
         self,
         sdr: RtlSdr,
@@ -43,6 +45,13 @@ class SignalAnalyzer(Thread):
         self.callbacks = [lambda sdr, signal: logger.debug(signal)]
 
     def run(self):
+        signal.signal(signal.SIGTERM, lambda sig, frame: self.stop())
+
+        cpu_core = self.sdr.device_index % multiprocessing.cpu_count()
+        out = subprocess.check_output(["taskset", "-p", "-c", str(cpu_core), str(self.pid)])
+        for line in out.decode().splitlines():
+            logger.info(f"SDR '{self.sdr.device}': {line}")
+
         self.sdr.read_samples_async(
             self.process_samples,
             self.sdr_callback_length,
