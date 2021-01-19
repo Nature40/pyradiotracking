@@ -18,6 +18,9 @@ parser = argparse.ArgumentParser(
     description="Detect signals of wildlife tracking systems with RTL SDR devices",
     fromfile_prefix_chars="@",
 )
+# allow for better config file formatting; ignore everything after ';', split blanks
+parser.convert_arg_line_to_args = lambda line: line.split(";")[0].split()
+
 # generic options
 parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
 
@@ -31,8 +34,10 @@ sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6
 
 # analysis options
 analysis_options = parser.add_argument_group("signal analysis")
-analysis_options.add_argument("-n", "--fft-nperseg", help="fft number of samples", default=None, type=int)
-analysis_options.add_argument("-w", "--fft-window", help="fft window function, see https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html", type=eval, default="'hamming'")
+analysis_options.add_argument("-n", "--fft-nperseg", help="fft number of samples, default: 256", default=256, type=int)
+analysis_options.add_argument(
+    "-w", "--fft-window", help="fft window function, default: 'hamming', see https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html", type=eval, default="'hamming'"
+)
 analysis_options.add_argument("-t", "--signal-threshold-db", help="lower limit for signal intensity (dBW), default: -50.0", type=float, default=-50.0)
 analysis_options.add_argument("-r", "--snr-threshold-db", help="lower limit for signal-to-noise ratio (dB), default: 10.0", type=float, default=10.0)
 analysis_options.add_argument("-l", "--signal-min-duration-ms", help="lower limit for signal duration (ms), default: 8", type=float, default=8)
@@ -40,10 +45,10 @@ analysis_options.add_argument("-u", "--signal-max-duration-ms", help="upper limi
 
 # data publishing options
 publish_options = parser.add_argument_group("data publishing")
-publish_options.add_argument("--csv-path", help="csv folder path", default="data")
-publish_options.add_argument("--mqtt", help="enable mqtt data publishing", action="store_true")
-publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker", default="localhost")
-publish_options.add_argument("--mqtt-port", help="port of mqtt broker", default=1883, type=int)
+publish_options.add_argument("--csv-path", help=f"csv folder path, default: ./data/{os.uname()[1]}/radiotracking", default=f"./data/{os.uname()[1]}/radiotracking")
+publish_options.add_argument("--mqtt", help="enable mqtt data publishing, default: False", action="store_true")
+publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker, default: localthost", default="localhost")
+publish_options.add_argument("--mqtt-port", help="port of mqtt broker, default: 1883", default=1883, type=int)
 
 
 def create_analyzer(device, device_index, arg_dict, ts):
