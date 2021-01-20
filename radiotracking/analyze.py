@@ -1,14 +1,19 @@
-from rtlsdr import RtlSdr
-import logging
-import scipy.signal
-from radiotracking import Signal, from_dB, dB
-import multiprocessing
-import subprocess
-import signal
 import datetime
+import logging
+import multiprocessing
+import os
+import signal
+import sys
+import threading
 import time
+from typing import Callable, List, Union
+
 import numpy as np
-from typing import List, Union
+import rtlsdr
+import scipy.signal
+
+from radiotracking import Signal, dB, from_dB
+from radiotracking.consume import CSVConsumer, MQTTConsumer
 
 logger = logging.getLogger(__name__)
 
@@ -16,21 +21,52 @@ logger = logging.getLogger(__name__)
 class SignalAnalyzer(multiprocessing.Process):
     def __init__(
         self,
-        sdr: RtlSdr,
+        device: str,
+        sample_rate: int,
+        center_freq: int,
+        gain: float,
         fft_nperseg: int,
         fft_window,
         signal_min_duration_ms: float,
         signal_max_duration_ms: float,
         signal_threshold_db: float,
         snr_threshold_db: float,
+        verbose: int,
+        stdout: bool,
+        csv: bool,
+        csv_path: str,
+        mqtt: bool,
+        mqtt_host: str,
+        mqtt_port: int,
+        sdr_max_restart: int,
         sdr_callback_length: int = None,
-        **kwargs,
     ):
         super().__init__()
-        if sdr_callback_length is None:
-            sdr_callback_length = sdr.sample_rate
 
-        self.sdr = sdr
+        self.device = device
+        # try to use --device as index
+        try:
+            self.device_index = int(device)
+            logger.info(f"Using '{device}' as device index.")
+        except ValueError:
+            # try to use --device as serial numbers
+            try:
+                self.device_index = rtlsdr.RtlSdr.get_device_index_by_serial(device)
+                logger.info(f"Using '{device}' as serial number (index: {self.device_index}).")
+            except rtlsdr.rtlsdr.LibUSBError:
+                logger.warning(f"Device '{device}' could was not found, aborting.")
+                sys.exit(1)
+
+        self.sample_rate = sample_rate
+        self.center_freq = center_freq
+        try:
+            self.gain = float(gain)
+        except ValueError:
+            self.gain = gain
+
+        if sdr_callback_length is None:
+            sdr_callback_length = sample_rate
+
         self.fft_nperseg = fft_nperseg
         self.fft_window = fft_window
         self.signal_min_duration = signal_min_duration_ms / 1000
@@ -39,23 +75,69 @@ class SignalAnalyzer(multiprocessing.Process):
         self.snr_threshold = from_dB(snr_threshold_db)
         self.sdr_callback_length = sdr_callback_length
 
+        self.verbose = verbose
+        self.stdout = stdout
+        self.csv = csv
+        self.csv_path = csv_path
+        self.mqtt = mqtt
+        self.mqtt_host = mqtt_host
+        self.mqtt_port = mqtt_port
+
+        self.sdr_max_restart = sdr_max_restart
+
         self._spectrogram_last = None
         self._ts = None
 
-        self.callbacks = [lambda sdr, signal: logger.debug(signal)]
+        self._callbacks: List[Callable] = []
 
     def run(self):
         signal.signal(signal.SIGTERM, lambda sig, frame: self.stop())
+        ts = datetime.datetime.now()
 
-        cpu_core = self.sdr.device_index % multiprocessing.cpu_count()
-        out = subprocess.check_output(["taskset", "-p", "-c", str(cpu_core), str(self.pid)])
-        for line in out.decode().splitlines():
-            logger.info(f"SDR '{self.sdr.device}': {line}")
+        # logging levels increase in steps of 10, start with warning
+        logging_level = max(0, logging.WARN - (self.verbose * 10))
+        logging.basicConfig(level=logging_level)
 
-        self.sdr.read_samples_async(
-            self.process_samples,
-            self.sdr_callback_length,
-        )
+        # add logging consumer
+        self._callbacks.append(lambda analyzer, signal: logger.debug(f"SDR {analyzer.device} received {signal}"))
+
+        # add stdout consumer
+        if self.stdout:
+            stdout_consumer = CSVConsumer(sys.stdout, write_header=False)
+            self._callbacks.append(stdout_consumer.add)
+
+        # add csv consumer
+        os.makedirs(self.csv_path, exist_ok=True)
+        csv_path = f"{self.csv_path}/{ts:%Y-%m-%dT%H%M%S}-{self.device}.csv"
+        out = open(csv_path, "w")
+        csv_consumer = CSVConsumer(out)
+        self._callbacks.append(csv_consumer.add)
+
+        # add mqtt consumer
+        if self.mqtt:
+            mqtt_consumer = MQTTConsumer(self.mqtt_host, self.mqtt_port)
+            self._callbacks.append(mqtt_consumer.add)
+
+        # setup sdr
+        sdr = rtlsdr.RtlSdr(self.device_index)
+        sdr.sample_rate = self.sample_rate
+        sdr.center_freq = self.center_freq
+        sdr.gain = float(self.gain)
+        self.sdr = sdr
+
+        # start sdr sampling
+        t = threading.Thread(target=self.sdr.read_samples_async, args=(self.process_samples, self.sdr_callback_length))
+        t.start()
+
+        # monitor sdr
+        while True:
+            if self._ts:
+                timeout_ts = datetime.datetime.now() - datetime.timedelta(seconds=2)
+                if self._ts < timeout_ts:
+                    logger.critical(f"SDR {self.device} timed out, killing.")
+                    break
+
+        self.stop()
 
     def stop(self):
         self.sdr.cancel_read_async()
@@ -67,7 +149,7 @@ class SignalAnalyzer(multiprocessing.Process):
         context -- Context as handed back from read_samples_async, unused
         """
         ts_recv = datetime.datetime.now()
-        buffer_len_dt = datetime.timedelta(seconds=len(buffer) / self.sdr.sample_rate)
+        buffer_len_dt = datetime.timedelta(seconds=len(buffer) / self.sample_rate)
 
         # initialize / advance clock
         if not self._ts:
@@ -76,11 +158,10 @@ class SignalAnalyzer(multiprocessing.Process):
             self._ts += buffer_len_dt
 
         clock_drift = (ts_recv - self._ts).total_seconds()
-        logger.info(f"SDR '{self.sdr.device}' received {len(buffer)} samples, total clock drift: {clock_drift:.2} s")
 
         # warn on clock drift and resync
         if clock_drift > 2 * buffer_len_dt.total_seconds():
-            logger.warn(f"SDR '{self.sdr.device}' total clock drift ({clock_drift:.5} s) is larger than two blocks, signal detection is degraded. Resyncing...")
+            logger.warning(f"SDR {self.device} total clock drift ({clock_drift:.5} s) is larger than two blocks, signal detection is degraded. Resyncing...")
             self._ts = ts_recv
             self._spectrogram_last = None
 
@@ -89,7 +170,7 @@ class SignalAnalyzer(multiprocessing.Process):
         bench_start = time.time()
         freqs, times, spectrogram = scipy.signal.spectrogram(
             buffer,
-            fs=self.sdr.sample_rate,
+            fs=self.sample_rate,
             window=self.fft_window,
             nperseg=self.fft_nperseg,
             noverlap=0,
@@ -108,18 +189,20 @@ class SignalAnalyzer(multiprocessing.Process):
         bench_consume = time.time()
 
         logger.info(
-            f"filtered {len(filtered)} / {len(signals)} signals, timings: "
+            f"SDR {self.device} recv {len(buffer)}, "
+            + f"clock drift: {clock_drift:.2} s, "
+            + f"filtered {len(filtered)} / {len(signals)} signals, "
             + f"block len: {(buffer_len_dt.total_seconds())*100:.1f} ms, "
-            + f"total: {(bench_consume-bench_start)*100:.1f} ms ("
-            + f"spectogram: {(bench_spectrogram - bench_start)*100:.1f} ms, "
-            + f"extract: {(bench_extract-bench_spectrogram)*100:.1f} ms, "
-            + f"filter: {(bench_filter-bench_extract)*100:.1f} ms, "
-            + f"consume: {(bench_consume-bench_filter)*100:.1f} ms)"
-        )
+            + f"compute: {(bench_consume-bench_start)*100:.1f} ms")
+
+        logger.debug(f"timings - spectogram: {(bench_spectrogram - bench_start)*100:.1f} ms, "
+                     + f"extract: {(bench_extract-bench_spectrogram)*100:.1f} ms, "
+                     + f"filter: {(bench_filter-bench_extract)*100:.1f} ms, "
+                     + f"consume: {(bench_consume-bench_filter)*100:.1f} ms")
         self._spectrogram_last = spectrogram
 
     def consume_signal(self, signal):
-        [callback(self.sdr, signal) for callback in self.callbacks]
+        [callback(self, signal) for callback in self._callbacks]
 
     def filter_shadow_signals(self, signals):
         def is_shadow_of(sig: Signal, signals: List[Signal]) -> Union[None, int]:
@@ -172,7 +255,7 @@ class SignalAnalyzer(multiprocessing.Process):
         for fi, fft in enumerate(spectrogram):
             # set freq_avg to None to allow lazy evaluation
             freq_avg = None
-            freq = freqs[fi] + self.sdr.center_freq
+            freq = freqs[fi] + self.center_freq
             ti_skip = 0
 
             # jump over all power values in signal_min_duration_num distance

@@ -1,5 +1,9 @@
 {
-    "python.formatting.provider": "black",
+    "python.formatting.provider": "autopep8",
+    "python.formatting.autopep8Args": [
+        "--max-line-length=200",
+        "--experimental"
+    ],
     "python.formatting.blackArgs": [
         "--line-length=200"
     ],
@@ -9,4 +13,7 @@
         "--ignore=E501,W503"
     ],
     "python.linting.mypyEnabled": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": true
+    },
 }

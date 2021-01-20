@@ -1,24 +1,16 @@
 import csv
-import rtlsdr
-import socket
-import logging
+import datetime
 import json
+import logging
+import socket
+
 import cbor2 as cbor
-from datetime import timezone
 import paho.mqtt.client
+import rtlsdr
+
 from radiotracking import Signal
 
 logger = logging.getLogger(__name__)
-
-
-class SignalMatcher:
-    def __init__(self):
-        self.signals = []
-
-    def add(self, sdr: rtlsdr.RtlSdr, signal: Signal):
-        # signals arrive in arbitrary order and signals could
-
-        pass
 
 
 class MQTTConsumer:
@@ -47,7 +39,7 @@ class MQTTConsumer:
         )
 
         # publish cbor
-        payload_cbor = cbor.dumps(signal.raw_list, timezone=timezone.utc, datetime_as_timestamp=True)
+        payload_cbor = cbor.dumps(signal.raw_list, timezone=datetime.timezone.utc, datetime_as_timestamp=True)
         self.client.publish(
             f"{self.prefix}/cbor/{sdr.device_index}",
             payload_cbor,
@@ -56,16 +48,16 @@ class MQTTConsumer:
         logger.debug(f"published via mqtt, json: {len(payload_json)}, csv: {len(payload_csv)}, cbor: {len(payload_cbor)}")
 
 
-class CsvConsumer:
-    def __init__(self, csv_path):
-        self.csv_path = csv_path
-        self.out = open(csv_path, "w")
-        self.writer = csv.writer(self.out, dialect="excel", delimiter=";")
-        self.writer.writerow(Signal.header)
+class CSVConsumer:
+    def __init__(self, out, write_header=True):
+        self.out = out
+        self.writer = csv.writer(out, dialect="excel", delimiter=";")
+        if write_header:
+            self.writer.writerow(Signal.header)
         self.out.flush()
 
     def add(self, sdr: rtlsdr.RtlSdr, signal: Signal, **kwargs):
         self.writer.writerow(signal.as_list)
         self.out.flush()
 
-        logger.debug(f"published via csv: {self.csv_path}")
+        logger.debug("published via csv")

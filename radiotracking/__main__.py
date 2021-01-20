@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 
-from rtlsdr.rtlsdr import RtlSdr
-from radiotracking.analyze import SignalAnalyzer
-from radiotracking.consume import CsvConsumer, MQTTConsumer
-import signal
-import datetime
-import sys
-import os
-import logging
 import argparse
-import rtlsdr
+import logging
+import multiprocessing
+import os
+import signal
+import subprocess
+import time
+
+from radiotracking.analyze import SignalAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,7 @@ sdr_options.add_argument("-f", "--center-freq", help="center frequency to tune t
 sdr_options.add_argument("-s", "--sample-rate", help="sample rate (Hz), default: 300000", default=300000, type=int)
 sdr_options.add_argument("-b", "--sdr-callback-length", help="number of samples to read per batch", default=None, type=int)
 sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6, default: 49.6", default="49.6")
+sdr_options.add_argument("--sdr-max-restart", help="maximal restart count per SDR device, default: 3", default=3, type=int)
 
 # analysis options
 analysis_options = parser.add_argument_group("signal analysis")
@@ -45,36 +45,12 @@ analysis_options.add_argument("-u", "--signal-max-duration-ms", help="upper limi
 
 # data publishing options
 publish_options = parser.add_argument_group("data publishing")
+publish_options.add_argument("--stdout", help="enable stdout data publishing, default: False", action="store_true")
+publish_options.add_argument("--csv", help="enable csv data publishing, default: False", action="store_true")
 publish_options.add_argument("--csv-path", help=f"csv folder path, default: ./data/{os.uname()[1]}/radiotracking", default=f"./data/{os.uname()[1]}/radiotracking")
 publish_options.add_argument("--mqtt", help="enable mqtt data publishing, default: False", action="store_true")
 publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker, default: localthost", default="localhost")
 publish_options.add_argument("--mqtt-port", help="port of mqtt broker, default: 1883", default=1883, type=int)
-
-
-def create_analyzer(device, device_index, arg_dict, ts):
-    sdr = RtlSdr(device_index)
-    sdr.device = device
-    sdr.device_index = device_index
-    sdr.sample_rate = args.sample_rate
-    sdr.center_freq = args.center_freq
-    try:
-        sdr.gain = float(args.gain)
-    except ValueError:
-        sdr.gain = args.gain
-
-    # create analyzers
-    analyzer = SignalAnalyzer(sdr, **arg_dict)
-
-    csv_consumer = CsvConsumer(f"{args.csv_path}/{ts:%Y-%m-%dT%H%M%S}-{device}.csv")
-    analyzer.callbacks.append(csv_consumer.add)
-
-    if args.mqtt:
-        mqtt_consumer = MQTTConsumer(args.mqtt_host, args.mqtt_port)
-        analyzer.callbacks.append(mqtt_consumer.add)
-
-    analyzer.callbacks.append(lambda sdr, signal: logger.debug(f"SDR '{sdr.device}' received {signal}"))
-
-    return analyzer
 
 
 if __name__ == "__main__":
@@ -87,49 +63,61 @@ if __name__ == "__main__":
     # describe configuration
     logger.info(f"center frequency {args.center_freq/1000/1000:.2f}MHz")
     logger.info(f"sampling rate {args.sample_rate/1000:.0f}kHz")
-
     frequency_min = args.center_freq - args.sample_rate / 2
     frequency_max = args.center_freq + args.sample_rate / 2
     logger.info(f"band {frequency_min/1000/1000:.2f}MHz - {frequency_max/1000/1000:.2f}MHz")
 
-    try:
-        # try to use --device as index
-        device_indexes = [int(d) for d in args.device]
-        logger.info(f"Using devices {device_indexes} by indexes")
-    except ValueError:
-        # try to use --device as serial numbers
-        device_indexes = []
-        for d in args.device:
-            try:
-                i = rtlsdr.RtlSdr.get_device_index_by_serial(d)
-                device_indexes.append(i)
-            except rtlsdr.rtlsdr.LibUSBError:
-                logger.warning(f"Device '{d}' could was not found, aborting.")
-                sys.exit(1)
+    # init task & process handling
+    running = True
 
-        logger.info(f"Using devices {device_indexes} by serials {args.device}")
-
-    ts = datetime.datetime.now()
-    os.makedirs(args.csv_path, exist_ok=True)
-    analyzers = []
-
-    for device, device_index in zip(args.device, device_indexes):
-        analyzer = create_analyzer(device, device_index, args.__dict__, ts)
-        analyzers.append(analyzer)
-
-    # Start all analyzers
-    [a.start() for a in analyzers]
-    logger.info("All analyzers started.")
-
-    def handle(sig, frame):
+    def terminate(sig, frame):
+        global running
+        running = False
         logging.warning(f"Caught {signal.Signals(sig).name}, terminating {len(analyzers)} analyzers.")
 
         # Stop the analyzers, and wait for completion
-        [a.terminate() for a in analyzers]
+        [a.kill() for a in analyzers]
         [a.join() for a in analyzers]
         logging.warning("Termination complete.")
 
-    signal.signal(signal.SIGINT, handle)
-    signal.signal(signal.SIGTERM, handle)
+    signal.signal(signal.SIGINT, terminate)
+    signal.signal(signal.SIGTERM, terminate)
 
-    signal.pause()
+    analyzers = []
+    device_args = args.__dict__.copy()
+    device_args.pop("device")
+
+    # create & start analyzers
+    for device in args.device:
+        analyzer = SignalAnalyzer(device, **device_args)
+        analyzers.append(analyzer)
+        analyzer.start()
+
+        try:
+            cpu_core = analyzer.device_index % multiprocessing.cpu_count()
+            out = subprocess.check_output(["taskset", "-p", "-c", str(cpu_core), str(analyzer.pid)])
+            for line in out.decode().splitlines():
+                logger.info(f"SDR {analyzer.device} CPU affinity: {line}")
+        except FileNotFoundError:
+            logger.warning(f"SDR {analyzer.device} CPU affinity: failed to configure")
+
+    logger.info("All analyzers started.")
+
+    while running:
+        dead_analyzers = [a for a in analyzers if not a.is_alive()]
+        for a in dead_analyzers:
+            if a.sdr_max_restart <= 0:
+                logger.critical(f"SDR {a.device} is dead and beyond restart count, terminating.")
+                terminate(signal.SIGTERM, None)
+                break
+
+            logger.critical(f"SDR {a.device} is dead, restarting.")
+
+            # create & start new analyzer
+            device_args["sdr_max_restart"] = a.sdr_max_restart - 1
+            new = SignalAnalyzer(a.device, **device_args)
+            analyzers.remove(a)
+            analyzers.append(new)
+            new.start()
+
+        time.sleep(1)

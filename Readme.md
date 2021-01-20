@@ -7,9 +7,10 @@ Detect signals of wildlife tracking systems with RTL SDR devices.
 
 ```bash
 $ python3 -m radiotracking -h
-usage: radiotracking [-h] [-v] [-d [DEVICE [DEVICE ...]]] [-f CENTER_FREQ] [-s SAMPLE_RATE] [-b SDR_CALLBACK_LENGTH]
-                     [-g GAIN] [-n FFT_NPERSEG] [-w FFT_WINDOW] [-t SIGNAL_THRESHOLD_DB] [-r SNR_THRESHOLD_DB]
-                     [-l SIGNAL_MIN_DURATION_MS] [-u SIGNAL_MAX_DURATION_MS]
+usage: radiotracking [-h] [-v] [-d [DEVICE [DEVICE ...]]] [-f CENTER_FREQ] [-s SAMPLE_RATE] [-b SDR_CALLBACK_LENGTH] [-g GAIN]
+                     [--sdr-max-restart SDR_MAX_RESTART] [-n FFT_NPERSEG] [-w FFT_WINDOW] [-t SIGNAL_THRESHOLD_DB] [-r SNR_THRESHOLD_DB]
+                     [-l SIGNAL_MIN_DURATION_MS] [-u SIGNAL_MAX_DURATION_MS] [--stdout] [--csv] [--csv-path CSV_PATH] [--mqtt]
+                     [--mqtt-host MQTT_HOST] [--mqtt-port MQTT_PORT]
 
 Detect signals of wildlife tracking systems with RTL SDR devices
 
@@ -20,28 +21,40 @@ optional arguments:
 software-defined radio (SDR):
   -d [DEVICE [DEVICE ...]], --device [DEVICE [DEVICE ...]]
                         device indexes or names, default: 0
-  -f CENTER_FREQ, --center_freq CENTER_FREQ
+  -f CENTER_FREQ, --center-freq CENTER_FREQ
                         center frequency to tune to (Hz), default: 150100001
-  -s SAMPLE_RATE, --sample_rate SAMPLE_RATE
-                        sample rate (Hz), default: 2048000
-  -b SDR_CALLBACK_LENGTH, --sdr_callback_length SDR_CALLBACK_LENGTH
+  -s SAMPLE_RATE, --sample-rate SAMPLE_RATE
+                        sample rate (Hz), default: 300000
+  -b SDR_CALLBACK_LENGTH, --sdr-callback-length SDR_CALLBACK_LENGTH
                         number of samples to read per batch
   -g GAIN, --gain GAIN  gain, supported levels 0.0 - 49.6, default: 49.6
+  --sdr-max-restart SDR_MAX_RESTART
+                        maximal restart count per SDR device, default: 3
 
 signal analysis:
-  -n FFT_NPERSEG, --fft_nperseg FFT_NPERSEG
-                        fft number of samples
-  -w FFT_WINDOW, --fft_window FFT_WINDOW
-                        fft window function, see
+  -n FFT_NPERSEG, --fft-nperseg FFT_NPERSEG
+                        fft number of samples, default: 256
+  -w FFT_WINDOW, --fft-window FFT_WINDOW
+                        fft window function, default: 'hamming', see
                         https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html
-  -t SIGNAL_THRESHOLD_DB, --signal_threshold_db SIGNAL_THRESHOLD_DB
+  -t SIGNAL_THRESHOLD_DB, --signal-threshold-db SIGNAL_THRESHOLD_DB
                         lower limit for signal intensity (dBW), default: -50.0
-  -r SNR_THRESHOLD_DB, --snr_threshold_db SNR_THRESHOLD_DB
+  -r SNR_THRESHOLD_DB, --snr-threshold-db SNR_THRESHOLD_DB
                         lower limit for signal-to-noise ratio (dB), default: 10.0
-  -l SIGNAL_MIN_DURATION_MS, --signal_min_duration_ms SIGNAL_MIN_DURATION_MS
+  -l SIGNAL_MIN_DURATION_MS, --signal-min-duration-ms SIGNAL_MIN_DURATION_MS
                         lower limit for signal duration (ms), default: 8
-  -u SIGNAL_MAX_DURATION_MS, --signal_max_duration_ms SIGNAL_MAX_DURATION_MS
+  -u SIGNAL_MAX_DURATION_MS, --signal-max-duration-ms SIGNAL_MAX_DURATION_MS
                         upper limit for signal duration (ms), default: 40
+
+data publishing:
+  --stdout              enable stdout data publishing, default: False
+  --csv                 enable csv data publishing, default: False
+  --csv-path CSV_PATH   csv folder path, default: ./data/curta/radiotracking
+  --mqtt                enable mqtt data publishing, default: False
+  --mqtt-host MQTT_HOST
+                        hostname of mqtt broker, default: localthost
+  --mqtt-port MQTT_PORT
+                        port of mqtt broker, default: 1883
 ```
 
 ### Troubleshooting
@@ -65,7 +78,7 @@ For larger buffers, as preferable for high sampling rates in terms of effificien
 
 Each analyzer holds a time stamp internally to derive the time of a detected signal from. The clock is initialized on first async callback from the RTL-SDR library and then incremented according to the data retrieved from the SDR in the following callbacks. Whenever the calculated timestamp differs from the system clock by more than one block length this is detected:
 
-`SDR '0' total clock drift (1.1482 s) is larger than two blocks, signal detection is degraded. Resyncing...`
+`SDR 0 total clock drift (1.1482 s) is larger than two blocks, signal detection is degraded. Resyncing...`
 
 Resyncing resets the internal clock to the current system clock, such that even though samples have been lost, the detected signals are using the correct timestamp.
 
