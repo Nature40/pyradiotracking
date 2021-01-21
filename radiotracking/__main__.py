@@ -31,6 +31,7 @@ sdr_options.add_argument("-s", "--sample-rate", help="sample rate (Hz), default:
 sdr_options.add_argument("-b", "--sdr-callback-length", help="number of samples to read per batch", default=None, type=int)
 sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6, default: 49.6", default="49.6")
 sdr_options.add_argument("--sdr-max-restart", help="maximal restart count per SDR device, default: 3", default=3, type=int)
+sdr_options.add_argument("--sdr-timeout-s", help="Time after which an SDR device is considered unrepsonsive (s), default: 2", default=2, type=int)
 
 # analysis options
 analysis_options = parser.add_argument_group("signal analysis")

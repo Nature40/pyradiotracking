@@ -4,7 +4,6 @@ import multiprocessing
 import os
 import signal
 import sys
-import threading
 import time
 from typing import Callable, List, Union
 
@@ -39,7 +38,8 @@ class SignalAnalyzer(multiprocessing.Process):
         mqtt_host: str,
         mqtt_port: int,
         sdr_max_restart: int,
-        sdr_callback_length: int = None,
+        sdr_timeout_s: int,
+        sdr_callback_length: int,
     ):
         super().__init__()
 
@@ -84,6 +84,7 @@ class SignalAnalyzer(multiprocessing.Process):
         self.mqtt_port = mqtt_port
 
         self.sdr_max_restart = sdr_max_restart
+        self.sdr_timeout_s = sdr_timeout_s
 
         self._spectrogram_last = None
         self._ts = None
@@ -91,7 +92,7 @@ class SignalAnalyzer(multiprocessing.Process):
         self._callbacks: List[Callable] = []
 
     def run(self):
-        signal.signal(signal.SIGTERM, lambda sig, frame: self.stop())
+        signal.signal(signal.SIGTERM, self.handle_signal)
         ts = datetime.datetime.now()
 
         # logging levels increase in steps of 10, start with warning
@@ -125,21 +126,18 @@ class SignalAnalyzer(multiprocessing.Process):
         sdr.gain = float(self.gain)
         self.sdr = sdr
 
+        signal.signal(signal.SIGALRM, self.handle_signal)
+        signal.alarm(self.sdr_timeout_s)
+
         # start sdr sampling
-        t = threading.Thread(target=self.sdr.read_samples_async, args=(self.process_samples, self.sdr_callback_length))
-        t.start()
+        self.sdr.read_samples_async(self.process_samples, self.sdr_callback_length)
 
-        # monitor sdr
-        while True:
-            if self._ts:
-                timeout_ts = datetime.datetime.now() - datetime.timedelta(seconds=2)
-                if self._ts < timeout_ts:
-                    logger.critical(f"SDR {self.device} timed out, killing.")
-                    break
+    def handle_signal(self, sig, frame):
+        if sig == signal.SIGALRM:
+            logger.warning(f"SDR {self.device} received SIGALRM, last data received {datetime.datetime.now() - self._ts} ago.")
+        elif sig == signal.SIGTERM:
+            logger.warning(f"SDR {self.device} received SIGTERM, terminating.")
 
-        self.stop()
-
-    def stop(self):
         self.sdr.cancel_read_async()
 
     def process_samples(self, buffer, context):
@@ -148,8 +146,12 @@ class SignalAnalyzer(multiprocessing.Process):
         buffer -- Buffer with read samples
         context -- Context as handed back from read_samples_async, unused
         """
+        # note recv datetime
         ts_recv = datetime.datetime.now()
         buffer_len_dt = datetime.timedelta(seconds=len(buffer) / self.sample_rate)
+
+        # reset alarm timer
+        signal.alarm(self.sdr_timeout_s)
 
         # initialize / advance clock
         if not self._ts:
