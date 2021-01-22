@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
 import argparse
+import datetime
 import logging
 import multiprocessing
 import os
 import signal
 import subprocess
-import time
 
 from radiotracking.analyze import SignalAnalyzer
+from radiotracking.match import SignalMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,22 @@ publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker, defau
 publish_options.add_argument("--mqtt-port", help="port of mqtt broker, default: 1883", default=1883, type=int)
 
 
+def create_and_start(device: str, device_args: dict, signal_matcher: SignalMatcher) -> SignalAnalyzer:
+    analyzer = SignalAnalyzer(device, **device_args)
+    analyzer._callbacks.append(signal_matcher.add)
+    analyzer.start()
+
+    try:
+        cpu_core = analyzer.device_index % multiprocessing.cpu_count()
+        out = subprocess.check_output(["taskset", "-p", "-c", str(cpu_core), str(analyzer.pid)])
+        for line in out.decode().splitlines():
+            logger.info(f"SDR {analyzer.device} CPU affinity: {line}")
+    except FileNotFoundError:
+        logger.warning(f"SDR {analyzer.device} CPU affinity: failed to configure")
+
+    return analyzer
+
+
 if __name__ == "__main__":
     args = parser.parse_args()
 
@@ -84,41 +101,29 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, terminate)
     signal.signal(signal.SIGTERM, terminate)
 
-    analyzers = []
+    matcher = SignalMatcher(**args.__dict__)
     device_args = args.__dict__.copy()
     device_args.pop("device")
 
     # create & start analyzers
-    for device in args.device:
-        analyzer = SignalAnalyzer(device, **device_args)
-        analyzers.append(analyzer)
-        analyzer.start()
-
-        try:
-            cpu_core = analyzer.device_index % multiprocessing.cpu_count()
-            out = subprocess.check_output(["taskset", "-p", "-c", str(cpu_core), str(analyzer.pid)])
-            for line in out.decode().splitlines():
-                logger.info(f"SDR {analyzer.device} CPU affinity: {line}")
-        except FileNotFoundError:
-            logger.warning(f"SDR {analyzer.device} CPU affinity: failed to configure")
+    analyzers = [create_and_start(d, device_args, matcher) for d in args.device]
 
     logger.info("All analyzers started.")
 
     while running:
+        # check if any of the analyzers have died
         dead_analyzers = [a for a in analyzers if not a.is_alive()]
-        for a in dead_analyzers:
-            if a.sdr_max_restart <= 0:
-                logger.critical(f"SDR {a.device} is dead and beyond restart count, terminating.")
+        for dead in dead_analyzers:
+            # terminate execution if the restarts are depleted
+            if dead.sdr_max_restart <= 0:
+                logger.critical(f"SDR {dead.device} is dead and beyond restart count, terminating.")
                 terminate(signal.SIGTERM, None)
-                break
 
-            logger.critical(f"SDR {a.device} is dead, restarting.")
+            # remove old & start new analyzer
+            analyzers.remove(dead)
+            device_args["sdr_max_restart"] = dead.sdr_max_restart - 1
+            analyzers.append(create_and_start(dead.device, device_args, matcher))
 
-            # create & start new analyzer
-            device_args["sdr_max_restart"] = a.sdr_max_restart - 1
-            new = SignalAnalyzer(a.device, **device_args)
-            analyzers.remove(a)
-            analyzers.append(new)
-            new.start()
-
-        time.sleep(1)
+        start = datetime.datetime.now()
+        while datetime.datetime.now() < start + datetime.timedelta(seconds=1):
+            matcher.step(datetime.datetime.now() - start)

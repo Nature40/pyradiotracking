@@ -89,7 +89,7 @@ class SignalAnalyzer(multiprocessing.Process):
         self._spectrogram_last = None
         self._ts = None
 
-        self._callbacks: List[Callable] = []
+        self._callbacks: List[Callable[[Signal, str], None]] = []
 
     def run(self):
         signal.signal(signal.SIGTERM, self.handle_signal)
@@ -100,19 +100,20 @@ class SignalAnalyzer(multiprocessing.Process):
         logging.basicConfig(level=logging_level)
 
         # add logging consumer
-        self._callbacks.append(lambda analyzer, signal: logger.debug(f"SDR {analyzer.device} received {signal}"))
+        self._callbacks.append(lambda sdr_device, signal: logger.debug(f"SDR {sdr_device} received {signal}"))
 
         # add stdout consumer
         if self.stdout:
-            stdout_consumer = CSVConsumer(sys.stdout, write_header=False)
+            stdout_consumer = CSVConsumer(sys.stdout)
             self._callbacks.append(stdout_consumer.add)
 
         # add csv consumer
-        os.makedirs(self.csv_path, exist_ok=True)
-        csv_path = f"{self.csv_path}/{ts:%Y-%m-%dT%H%M%S}-{self.device}.csv"
-        out = open(csv_path, "w")
-        csv_consumer = CSVConsumer(out)
-        self._callbacks.append(csv_consumer.add)
+        if self.csv:
+            os.makedirs(self.csv_path, exist_ok=True)
+            csv_path = f"{self.csv_path}/{ts:%Y-%m-%dT%H%M%S}-{self.device}.csv"
+            out = open(csv_path, "w")
+            csv_consumer = CSVConsumer(out, header=Signal.header)
+            self._callbacks.append(csv_consumer.add)
 
         # add mqtt consumer
         if self.mqtt:
@@ -204,7 +205,7 @@ class SignalAnalyzer(multiprocessing.Process):
         self._spectrogram_last = spectrogram
 
     def consume_signal(self, signal):
-        [callback(self, signal) for callback in self._callbacks]
+        [callback(signal, self.device) for callback in self._callbacks]
 
     def filter_shadow_signals(self, signals):
         def is_shadow_of(sig: Signal, signals: List[Signal]) -> Union[None, int]:
@@ -220,13 +221,11 @@ class SignalAnalyzer(multiprocessing.Process):
             """
             # iterate through all other signals
             for i, fsig in enumerate(signals):
-                sig_ts_mid = sig.ts + datetime.timedelta(seconds=sig.duration_s / 2.0)
-
                 # if fsig starts later than middle of sig, ignore
-                if sig_ts_mid < fsig.ts:
+                if sig.ts_mid < fsig.ts:
                     continue
                 # if fsig stops before middle of sig, ignore
-                if sig_ts_mid > fsig.ts + datetime.timedelta(seconds=fsig.duration_s):
+                if sig.ts_mid > fsig.ts + fsig.duration:
                     continue
 
                 # if fsig is louder, we are a shadow, return index
@@ -325,6 +324,7 @@ class SignalAnalyzer(multiprocessing.Process):
                     start_dt = times[start]
 
                 duration_s = end_dt - start_dt
+                duration = datetime.timedelta(seconds=duration_s)
                 if duration_s < self.signal_min_duration:
                     continue
                 if duration_s > self.signal_max_duration:
@@ -345,7 +345,7 @@ class SignalAnalyzer(multiprocessing.Process):
                 std_dB = np.std(dB(data))
                 snr_dB = dB(avg / freq_avg)
 
-                signal = Signal(ts, freq, duration_s, min_dBW, max_dBW, avg_dBW, std_dB, snr_dB)
+                signal = Signal(ts, freq, duration, min_dBW, max_dBW, avg_dBW, std_dB, snr_dB)
                 signals.append(signal)
 
         return signals
