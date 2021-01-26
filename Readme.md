@@ -7,9 +7,19 @@ Detect signals of wildlife tracking systems with RTL SDR devices.
 
 ```bash
 $ python3 -m radiotracking -h
-usage: radiotracking [-h] [-v] [-d [DEVICE [DEVICE ...]]] [-f CENTER_FREQ] [-s SAMPLE_RATE] [-b SDR_CALLBACK_LENGTH] [-g GAIN]
-                     [--sdr-max-restart SDR_MAX_RESTART] [-n FFT_NPERSEG] [-w FFT_WINDOW] [-t SIGNAL_THRESHOLD_DB] [-r SNR_THRESHOLD_DB]
-                     [-l SIGNAL_MIN_DURATION_MS] [-u SIGNAL_MAX_DURATION_MS] [--stdout] [--csv] [--csv-path CSV_PATH] [--mqtt]
+usage: radiotracking [-h] [-v] [--calibration-freq CALIBRATION_FREQ]
+                     [-d [DEVICE [DEVICE ...]]]
+                     [-c [CALIBRATION [CALIBRATION ...]]] [-f CENTER_FREQ]
+                     [-s SAMPLE_RATE] [-b SDR_CALLBACK_LENGTH] [-g GAIN]
+                     [--sdr-max-restart SDR_MAX_RESTART]
+                     [--sdr-timeout-s SDR_TIMEOUT_S] [-n FFT_NPERSEG]
+                     [-w FFT_WINDOW] [-t SIGNAL_THRESHOLD_DBW]
+                     [-r SNR_THRESHOLD_DB] [-l SIGNAL_MIN_DURATION_MS]
+                     [-u SIGNAL_MAX_DURATION_MS]
+                     [--matching-timeout-s MATCHING_TIMEOUT_S]
+                     [-mt MATCHING_TIME_DIFF_MS] [-mb MATCHING_BANDWIDTH_HZ]
+                     [-md MATCHING_DURATION_DIFF_MS] [--sig-stdout]
+                     [--match-stdout] [--csv] [--csv-path CSV_PATH] [--mqtt]
                      [--mqtt-host MQTT_HOST] [--mqtt-port MQTT_PORT]
 
 Detect signals of wildlife tracking systems with RTL SDR devices
@@ -17,10 +27,14 @@ Detect signals of wildlife tracking systems with RTL SDR devices
 optional arguments:
   -h, --help            show this help message and exit
   -v, --verbose         increase output verbosity
+  --calibration-freq CALIBRATION_FREQ
+                        frequency to use for calibration (Hz), default: None
 
 software-defined radio (SDR):
   -d [DEVICE [DEVICE ...]], --device [DEVICE [DEVICE ...]]
                         device indexes or names, default: 0
+  -c [CALIBRATION [CALIBRATION ...]], --calibration [CALIBRATION [CALIBRATION ...]]
+                        device calibration gain (dB), default: 0
   -f CENTER_FREQ, --center-freq CENTER_FREQ
                         center frequency to tune to (Hz), default: 150100001
   -s SAMPLE_RATE, --sample-rate SAMPLE_RATE
@@ -30,26 +44,46 @@ software-defined radio (SDR):
   -g GAIN, --gain GAIN  gain, supported levels 0.0 - 49.6, default: 49.6
   --sdr-max-restart SDR_MAX_RESTART
                         maximal restart count per SDR device, default: 3
+  --sdr-timeout-s SDR_TIMEOUT_S
+                        Time after which an SDR device is considered
+                        unrepsonsive (s), default: 2
 
 signal analysis:
   -n FFT_NPERSEG, --fft-nperseg FFT_NPERSEG
                         fft number of samples, default: 256
   -w FFT_WINDOW, --fft-window FFT_WINDOW
-                        fft window function, default: 'hamming', see
-                        https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html
-  -t SIGNAL_THRESHOLD_DB, --signal-threshold-db SIGNAL_THRESHOLD_DB
+                        fft window function, default: 'hamming', see https://d
+                        ocs.scipy.org/doc/scipy/reference/generated/scipy.sign
+                        al.spectrogram.html
+  -t SIGNAL_THRESHOLD_DBW, --signal-threshold-dbw SIGNAL_THRESHOLD_DBW
                         lower limit for signal intensity (dBW), default: -50.0
   -r SNR_THRESHOLD_DB, --snr-threshold-db SNR_THRESHOLD_DB
-                        lower limit for signal-to-noise ratio (dB), default: 10.0
+                        lower limit for signal-to-noise ratio (dB), default:
+                        10.0
   -l SIGNAL_MIN_DURATION_MS, --signal-min-duration-ms SIGNAL_MIN_DURATION_MS
                         lower limit for signal duration (ms), default: 8
   -u SIGNAL_MAX_DURATION_MS, --signal-max-duration-ms SIGNAL_MAX_DURATION_MS
                         upper limit for signal duration (ms), default: 40
 
+signal matching:
+  --matching-timeout-s MATCHING_TIMEOUT_S
+                        timeout for adding signals to a match group, default:
+                        2.0
+  -mt MATCHING_TIME_DIFF_MS, --matching-time-diff-ms MATCHING_TIME_DIFF_MS
+                        error margin for timestamp matching (ms), default: 0
+  -mb MATCHING_BANDWIDTH_HZ, --matching-bandwidth-hz MATCHING_BANDWIDTH_HZ
+                        error margin for frequency (Hz), default: 0
+  -md MATCHING_DURATION_DIFF_MS, --matching-duration-diff-ms MATCHING_DURATION_DIFF_MS
+                        error margin for duration (ms), default: None (do not
+                        match)
+
 data publishing:
-  --stdout              enable stdout data publishing, default: False
+  --sig-stdout          enable stdout signal publishing, default: False
+  --match-stdout        enable stdout matched signals publishing, default:
+                        False
   --csv                 enable csv data publishing, default: False
-  --csv-path CSV_PATH   csv folder path, default: ./data/curta/radiotracking
+  --csv-path CSV_PATH   csv folder path, default: ./data/nature40-sensorbox-
+                        ec8331f4/radiotracking
   --mqtt                enable mqtt data publishing, default: False
   --mqtt-host MQTT_HOST
                         hostname of mqtt broker, default: localthost

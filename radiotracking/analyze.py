@@ -21,6 +21,7 @@ class SignalAnalyzer(multiprocessing.Process):
     def __init__(
         self,
         device: str,
+        calibration_db: float,
         sample_rate: int,
         center_freq: int,
         gain: float,
@@ -28,10 +29,10 @@ class SignalAnalyzer(multiprocessing.Process):
         fft_window,
         signal_min_duration_ms: float,
         signal_max_duration_ms: float,
-        signal_threshold_db: float,
+        signal_threshold_dbw: float,
         snr_threshold_db: float,
         verbose: int,
-        stdout: bool,
+        sig_stdout: bool,
         csv: bool,
         csv_path: str,
         mqtt: bool,
@@ -40,10 +41,12 @@ class SignalAnalyzer(multiprocessing.Process):
         sdr_max_restart: int,
         sdr_timeout_s: int,
         sdr_callback_length: int,
+        **kwargs,
     ):
         super().__init__()
 
         self.device = device
+        self.calibration_db = calibration_db
         # try to use --device as index
         try:
             self.device_index = int(device)
@@ -71,12 +74,12 @@ class SignalAnalyzer(multiprocessing.Process):
         self.fft_window = fft_window
         self.signal_min_duration = signal_min_duration_ms / 1000
         self.signal_max_duration = signal_max_duration_ms / 1000
-        self.signal_threshold = from_dB(signal_threshold_db)
+        self.signal_threshold = from_dB(signal_threshold_dbw + calibration_db)
         self.snr_threshold = from_dB(snr_threshold_db)
         self.sdr_callback_length = sdr_callback_length
 
         self.verbose = verbose
-        self.stdout = stdout
+        self.sig_stdout = sig_stdout
         self.csv = csv
         self.csv_path = csv_path
         self.mqtt = mqtt
@@ -103,7 +106,7 @@ class SignalAnalyzer(multiprocessing.Process):
         self._callbacks.append(lambda sdr_device, signal: logger.debug(f"SDR {sdr_device} received {signal}"))
 
         # add stdout consumer
-        if self.stdout:
+        if self.sig_stdout:
             stdout_consumer = CSVConsumer(sys.stdout)
             self._callbacks.append(stdout_consumer.add)
 
@@ -221,11 +224,12 @@ class SignalAnalyzer(multiprocessing.Process):
             """
             # iterate through all other signals
             for i, fsig in enumerate(signals):
-                # if fsig starts later than middle of sig, ignore
-                if sig.ts_mid < fsig.ts:
+                # if sig starts after fsig ends, ignore
+                if sig.ts > fsig.ts + fsig.duration:
                     continue
-                # if fsig stops before middle of sig, ignore
-                if sig.ts_mid > fsig.ts + fsig.duration:
+
+                # if sig ends before fsig starts, ignore
+                if sig.ts + sig.duration < fsig.ts:
                     continue
 
                 # if fsig is louder, we are a shadow, return index
@@ -338,10 +342,10 @@ class SignalAnalyzer(multiprocessing.Process):
                 else:
                     data = fft[start:end]
 
-                max_dBW = dB(np.max(data))
-                min_dBW = dB(np.min(data))
+                max_dBW = dB(np.max(data)) - self.calibration_db
+                min_dBW = dB(np.min(data)) - self.calibration_db
                 avg = np.mean(data)
-                avg_dBW = dB(avg)
+                avg_dBW = dB(avg) - self.calibration_db
                 std_dB = np.std(dB(data))
                 snr_dB = dB(avg / freq_avg)
 

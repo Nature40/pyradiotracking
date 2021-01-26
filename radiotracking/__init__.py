@@ -1,9 +1,12 @@
 import datetime
+import logging
 import statistics
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def dB(val):
@@ -16,6 +19,8 @@ def from_dB(dB):
 
 class AbstractSignal(ABC):
     ts: datetime.datetime
+    frequency: float
+    duration: datetime.timedelta
     header: List[str]
 
     @property
@@ -104,7 +109,7 @@ class MatchedSignal(AbstractSignal):
         return min([sig.ts for sig in self._sigs.values()])
 
     @property
-    def ts_mid(self):
+    def ts_mid(self) -> datetime.datetime:
         return self.ts + (self.duration / 2.0)
 
     @property
@@ -119,7 +124,7 @@ class MatchedSignal(AbstractSignal):
     ]
 
     @property
-    def as_list(self):
+    def as_list(self) -> list:
         return [
             self.ts,
             self.frequency,
@@ -130,17 +135,36 @@ class MatchedSignal(AbstractSignal):
     def __str__(self):
         return f"MatchedSignal<{self.ts_mid}, {self.frequency/1000/1000} MHz, members {list(self._sigs.keys())}>"
 
-    def has_member(self, sig: Signal) -> bool:
-        # if freq differs
-        if self.frequency != sig.frequency:
+    def has_member(self,
+                   sig: Signal,
+                   time_diff: datetime.timedelta = datetime.timedelta(seconds=0),
+                   bandwidth: float = 0,
+                   duration_diff: Optional[datetime.timedelta] = None,
+                   ) -> bool:
+
+        # if freq (including bw) out of range of freq
+        if sig.frequency - bandwidth / 2 > self.frequency:
+            logger.debug(f"{sig.frequency - bandwidth / 2} > {self.frequency}")
+            return False
+        if sig.frequency + bandwidth / 2 < self.frequency:
+            logger.debug(f"{sig.frequency + bandwidth / 2} < {self.frequency}")
             return False
 
-        # is sig starts after middle of our sig
-        if self.ts_mid < sig.ts:
+        # if start (minus diff) is after end
+        if sig.ts - (time_diff / 2) > (self.ts + self.duration):
+            logger.debug(f"{sig.ts - (time_diff / 2)} > {(self.ts + self.duration)}")
             return False
-        # if sig ends before middle of our sig
-        if self.ts_mid > sig.ts + sig.duration:
+        # if end (plus diff) is before start
+        if (sig.ts + sig.duration) + (time_diff / 2) < self.ts:
+            logger.debug(f"{(sig.ts + sig.duration) + (time_diff / 2)} < {self.ts}")
             return False
+
+        # if no duration_diff is present, don't match for it
+        if duration_diff:
+            if sig.duration - (duration_diff / 2) > self.duration:
+                return False
+            if sig.duration + (duration_diff / 2) < self.duration:
+                return False
 
         return True
 

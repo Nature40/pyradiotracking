@@ -2,8 +2,11 @@ import csv
 import datetime
 import json
 import logging
+import multiprocessing
+import queue
 import socket
 from abc import ABC, abstractmethod
+from typing import List, Tuple
 
 import cbor2 as cbor
 import paho.mqtt.client
@@ -32,8 +35,28 @@ def cborify(encoder, o):
 
 class AbstractConsumer(ABC):
     @ abstractmethod
-    def add(self, signal: AbstractSignal, sdr_device: str):
+    def add(self, signal: AbstractSignal, device: str):
         pass
+
+
+class ProcessConsumerConnector(AbstractConsumer):
+    def __init__(self):
+        self._q: multiprocessing.Queue[Tuple[AbstractSignal, str]] = multiprocessing.Queue()
+        self._consumers: List[AbstractConsumer] = []
+
+    def add_consumer(self, consumer: AbstractConsumer):
+        self._consumers.append(consumer)
+
+    def add(self, sig: AbstractSignal, device: str) -> None:
+        self._q.put((sig, device))
+
+    def step(self, timeout: datetime.timedelta):
+        try:
+            sig, device = self._q.get(timeout=timeout.total_seconds())
+        except queue.Empty:
+            return
+
+        [c.add(sig, device) for c in self._consumers]
 
 
 class MQTTConsumer(AbstractConsumer):
@@ -46,11 +69,11 @@ class MQTTConsumer(AbstractConsumer):
         self.client = paho.mqtt.client.Client()
         self.client.connect(mqtt_host, mqtt_port)
 
-    def add(self, signal: AbstractSignal, sdr_device: str):
+    def add(self, signal: AbstractSignal, device: str):
 
         if isinstance(signal, Signal):
             # desired path: /nature40-sensorbox-01234567/radiotracking/signal/0/FMT
-            path = f"{self.prefix}/signal/{sdr_device}"
+            path = f"{self.prefix}/signal/{device}"
         elif isinstance(signal, MatchedSignal):
             # desired path: /nature40-sensorbox-01234567/radiotracking/matched/FMT
             path = f"{self.prefix}/matched"
@@ -88,7 +111,7 @@ class CSVConsumer(AbstractConsumer):
             self.writer.writerow(header)
         self.out.flush()
 
-    def add(self, signal: AbstractSignal, sdr_device: str):
+    def add(self, signal: AbstractSignal, device: str):
         self.writer.writerow(signal.as_list)
         self.out.flush()
 
