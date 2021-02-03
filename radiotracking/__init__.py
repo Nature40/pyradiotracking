@@ -2,7 +2,7 @@ import datetime
 import logging
 import statistics
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 
@@ -34,32 +34,38 @@ class AbstractSignal(ABC):
 
 
 class Signal(AbstractSignal):
+    min_dBW: float
+    max_dBW: float
+    avg_dBW: float
+    std_dB: float
+    snr_dB: float
+
     def __init__(
         self,
-        ts: datetime.datetime,
-        frequency: float,
-        duration: datetime.timedelta,
-        min_dBW: float,
-        max_dBW: float,
-        avg_dBW: float,
-        std_dB: float,
-        snr_dB: float,
+        ts: Union[datetime.datetime, str],
+        frequency: Union[float, str],
+        duration: Union[datetime.timedelta, float, str],
+        min_dBW: Union[float, str],
+        max_dBW: Union[float, str],
+        avg_dBW: Union[float, str],
+        std_dB: Union[float, str],
+        snr_dB: Union[float, str],
     ):
         if isinstance(ts, datetime.datetime):
             self.ts = ts
         else:
             self.ts = datetime.datetime.fromisoformat(ts)
-        self.frequency = frequency
+        self.frequency = float(frequency)
         if isinstance(duration, datetime.timedelta):
             self.duration = duration
         else:
-            self.duration = datetime.timedelta(duration)
+            self.duration = datetime.timedelta(seconds=float(duration))
 
-        self.max = max_dBW
-        self.min = min_dBW
-        self.avg = avg_dBW
-        self.std = std_dB
-        self.snr = snr_dB
+        self.max = float(max_dBW)
+        self.min = float(min_dBW)
+        self.avg = float(avg_dBW)
+        self.std = float(std_dB)
+        self.snr = float(snr_dB)
 
     @property
     def ts_mid(self):
