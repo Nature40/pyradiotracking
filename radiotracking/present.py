@@ -17,7 +17,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
     def __init__(self,
                  dashboard_host: str,
                  dashboard_port: int,
-                 dashboard_signals: int,
+                 dashboard_signals: int = 50,
                  **kwargs,
                  ):
         threading.Thread.__init__(self)

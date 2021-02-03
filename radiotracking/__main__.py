@@ -71,12 +71,12 @@ class Runner:
     publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker, default: localthost", default="localhost")
     publish_options.add_argument("--mqtt-port", help="port of mqtt broker, default: 1883", default=1883, type=int)
 
-    # dashboard option
-    publish_options = parser.add_argument_group("dashboard")
-    publish_options.add_argument("--dashboard", help="enable dashboard, default: False", action="store_true")
-    publish_options.add_argument("--dashboard-host", help="hostname to bind dashboard to", default="localhost")
-    publish_options.add_argument("--dashboard-port", help="port top bind dashoard to, default: 8050", default=8050, type=int)
-    publish_options.add_argument("--dashboard-signals", help="number of signals to display in dashboard", default=8050, type=int)
+    # dashboard options
+    dashboard_options = parser.add_argument_group("dashboard")
+    dashboard_options.add_argument("--dashboard", help="enable web-dashboard", action="store_true")
+    dashboard_options.add_argument("--dashboard-host", help="hostname to bind the dashboard to, default: localhost", default="localhost")
+    dashboard_options.add_argument("--dashboard-port", help="port to bind the dashboard to, default: 8050", default=8050, type=int)
+    dashboard_options.add_argument("--dashboard-signals", help="number of signals to present, default: 100", default=100, type=int)
 
     @staticmethod
     def create_and_start(dargs: argparse.Namespace, queue: multiprocessing.Queue) -> SignalAnalyzer:
