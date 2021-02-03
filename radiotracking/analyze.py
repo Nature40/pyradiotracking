@@ -1,19 +1,17 @@
 import datetime
 import logging
 import multiprocessing
-import os
 import signal
 import sys
 import time
-import pytz
-from typing import Callable, List, Union
+from typing import List, Union
 
 import numpy as np
+import pytz
 import rtlsdr
 import scipy.signal
 
 from radiotracking import Signal, dB, from_dB
-from radiotracking.consume import CSVConsumer, MQTTConsumer
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +31,10 @@ class SignalAnalyzer(multiprocessing.Process):
         signal_threshold_dbw: float,
         snr_threshold_db: float,
         verbose: int,
-        sig_stdout: bool,
-        csv: bool,
-        csv_path: str,
-        mqtt: bool,
-        mqtt_host: str,
-        mqtt_port: int,
         sdr_max_restart: int,
         sdr_timeout_s: int,
         sdr_callback_length: int,
+        signal_queue: multiprocessing.Queue,
         **kwargs,
     ):
         super().__init__()
@@ -80,49 +73,21 @@ class SignalAnalyzer(multiprocessing.Process):
         self.sdr_callback_length = sdr_callback_length
 
         self.verbose = verbose
-        self.sig_stdout = sig_stdout
-        self.csv = csv
-        self.csv_path = csv_path
-        self.mqtt = mqtt
-        self.mqtt_host = mqtt_host
-        self.mqtt_port = mqtt_port
 
         self.sdr_max_restart = sdr_max_restart
         self.sdr_timeout_s = sdr_timeout_s
 
+        self.signal_queue = signal_queue
+
         self._spectrogram_last = None
         self._ts = None
 
-        self._callbacks: List[Callable[[Signal, str], None]] = []
-
     def run(self):
         signal.signal(signal.SIGTERM, self.handle_signal)
-        ts = datetime.datetime.now()
 
         # logging levels increase in steps of 10, start with warning
         logging_level = max(0, logging.WARN - (self.verbose * 10))
         logging.basicConfig(level=logging_level)
-
-        # add logging consumer
-        self._callbacks.append(lambda sdr_device, signal: logger.debug(f"SDR {sdr_device} received {signal}"))
-
-        # add stdout consumer
-        if self.sig_stdout:
-            stdout_consumer = CSVConsumer(sys.stdout)
-            self._callbacks.append(stdout_consumer.add)
-
-        # add csv consumer
-        if self.csv:
-            os.makedirs(self.csv_path, exist_ok=True)
-            csv_path = f"{self.csv_path}/{ts:%Y-%m-%dT%H%M%S}-{self.device}.csv"
-            out = open(csv_path, "w")
-            csv_consumer = CSVConsumer(out, header=Signal.header)
-            self._callbacks.append(csv_consumer.add)
-
-        # add mqtt consumer
-        if self.mqtt:
-            mqtt_consumer = MQTTConsumer(self.mqtt_host, self.mqtt_port)
-            self._callbacks.append(mqtt_consumer.add)
 
         # setup sdr
         sdr = rtlsdr.RtlSdr(self.device_index)
@@ -212,7 +177,8 @@ class SignalAnalyzer(multiprocessing.Process):
         self._spectrogram_last = spectrogram
 
     def consume_signal(self, signal):
-        [callback(signal, self.device) for callback in self._callbacks]
+        logger.debug(f"SDR {self.device} received {signal}")
+        self.signal_queue.put(signal)
 
     def filter_shadow_signals(self, signals):
         def is_shadow_of(sig: Signal, signals: List[Signal]) -> Union[None, int]:
@@ -347,13 +313,13 @@ class SignalAnalyzer(multiprocessing.Process):
                     data = fft[start:end]
 
                 max_dBW = dB(np.max(data)) - self.calibration_db
-                min_dBW = dB(np.min(data)) - self.calibration_db
                 avg = np.mean(data)
                 avg_dBW = dB(avg) - self.calibration_db
                 std_dB = np.std(dB(data))
+                noise_dBW = dB(freq_avg)
                 snr_dB = dB(avg / freq_avg)
 
-                signal = Signal(ts.astimezone(pytz.utc), freq, duration, min_dBW, max_dBW, avg_dBW, std_dB, snr_dB)
+                signal = Signal(self.device, ts.astimezone(pytz.utc), freq, duration, max_dBW, avg_dBW, std_dB, noise_dBW, snr_dB)
                 signals.append(signal)
 
         return signals

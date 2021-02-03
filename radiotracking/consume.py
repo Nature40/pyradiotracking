@@ -3,11 +3,13 @@ import datetime
 import json
 import logging
 import multiprocessing
+import os
 import queue
 import socket
+import sys
 from abc import ABC, abstractmethod
 from io import StringIO
-from typing import List, Tuple
+from typing import List, Type
 
 import cbor2 as cbor
 import paho.mqtt.client
@@ -42,29 +44,9 @@ def csvify(o):
 
 
 class AbstractConsumer(ABC):
-    @ abstractmethod
-    def add(self, signal: AbstractSignal, device: str):
+    @abstractmethod
+    def add(self, signal: AbstractSignal):
         pass
-
-
-class ProcessConsumerConnector(AbstractConsumer):
-    def __init__(self):
-        self._q: multiprocessing.Queue[Tuple[AbstractSignal, str]] = multiprocessing.Queue()
-        self._consumers: List[AbstractConsumer] = []
-
-    def add_consumer(self, consumer: AbstractConsumer):
-        self._consumers.append(consumer)
-
-    def add(self, sig: AbstractSignal, device: str) -> None:
-        self._q.put((sig, device))
-
-    def step(self, timeout: datetime.timedelta):
-        try:
-            sig, device = self._q.get(timeout=timeout.total_seconds())
-        except queue.Empty:
-            return
-
-        [c.add(sig, device) for c in self._consumers]
 
 
 class MQTTConsumer(AbstractConsumer):
@@ -77,18 +59,17 @@ class MQTTConsumer(AbstractConsumer):
         self.client = paho.mqtt.client.Client()
         self.client.connect(mqtt_host, mqtt_port)
 
-    def add(self, signal: AbstractSignal, device: str):
+    def add(self, signal: AbstractSignal):
 
         if isinstance(signal, Signal):
-            # desired path: /nature40-sensorbox-01234567/radiotracking/signal/0/FMT
-            path = f"{self.prefix}/signal/{device}"
+            path = f"{self.prefix}/device/{signal.device}"
         elif isinstance(signal, MatchedSignal):
-            # desired path: /nature40-sensorbox-01234567/radiotracking/matched/FMT
             path = f"{self.prefix}/matched"
         else:
             logger.critical(f"Unknown data type {type(signal)}, skipping.")
             return
 
+        # publish json
         payload_json = json.dumps(
             signal.as_dict,
             default=jsonify,
@@ -114,15 +95,74 @@ class MQTTConsumer(AbstractConsumer):
 
 
 class CSVConsumer(AbstractConsumer):
-    def __init__(self, out, header: list = None):
+    def __init__(self, out, cls: Type[AbstractSignal], header: List[str] = None):
         self.out = out
+        self.cls = cls
+
         self.writer = csv.writer(out, dialect="excel", delimiter=";")
         if header:
             self.writer.writerow(header)
         self.out.flush()
 
-    def add(self, signal: AbstractSignal, device: str):
-        self.writer.writerow([csvify(v) for v in signal.as_list])
-        self.out.flush()
+    def add(self, signal: AbstractSignal):
+        if isinstance(signal, self.cls):
+            self.writer.writerow([csvify(v) for v in signal.as_list])
+            self.out.flush()
 
-        logger.debug(f"published {signal} via csv")
+            logger.debug(f"published {signal} via csv")
+        else:
+            pass
+
+
+class ProcessConnector:
+    def __init__(self,
+                 device: List[str],
+                 sig_stdout: bool,
+                 match_stdout: bool,
+                 csv: bool,
+                 csv_path: str,
+                 mqtt: bool,
+                 mqtt_host: str,
+                 mqtt_port: int,
+                 **kwargs,
+                 ):
+        self.q: multiprocessing.Queue[AbstractSignal] = multiprocessing.Queue()
+        self.consumers: List[AbstractConsumer] = []
+
+        ts = datetime.datetime.now()
+
+        # add stdout consumers
+        if sig_stdout:
+            sig_stdout_consumer = CSVConsumer(sys.stdout, Signal)
+            self.consumers.append(sig_stdout_consumer)
+        if match_stdout:
+            match_stdout_consumer = CSVConsumer(sys.stdout, MatchedSignal)
+            self.consumers.append(match_stdout_consumer)
+
+        # add csv consumer
+        if csv:
+            # create output directory
+            os.makedirs(csv_path, exist_ok=True)
+
+            # create consumer for signals
+            signal_csv_path = f"{csv_path}/{ts:%Y-%m-%dT%H%M%S}.csv"
+            signal_csv_consumer = CSVConsumer(open(signal_csv_path, "w"), cls=Signal, header=Signal.header)
+            self.consumers.append(signal_csv_consumer)
+
+            # create consumer for matched signals
+            matched_csv_path = f"{csv_path}/{ts:%Y-%m-%dT%H%M%S}-matched.csv"
+            matched_csv_consumer = CSVConsumer(open(matched_csv_path, "w"), cls=MatchedSignal, header=MatchedSignal(device).header)
+            self.consumers.append(matched_csv_consumer)
+
+        # add mqtt consumer
+        if mqtt:
+            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port)
+            self.consumers.append(mqtt_consumer)
+
+    def step(self, timeout: datetime.timedelta):
+        try:
+            sig = self.q.get(timeout=timeout.total_seconds())
+        except queue.Empty:
+            return
+
+        [c.add(sig) for c in self.consumers]

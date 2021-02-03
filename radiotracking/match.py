@@ -1,12 +1,11 @@
 import datetime
 import logging
 import math
-import os
-import sys
-from typing import Callable, List
+import multiprocessing
+from typing import List
 
 from radiotracking import AbstractSignal, MatchedSignal, Signal
-from radiotracking.consume import AbstractConsumer, CSVConsumer, MQTTConsumer
+from radiotracking.consume import AbstractConsumer
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ class CalibrationConsumer(AbstractConsumer):
         self.calibration_freq = calibration_freq
         self.bandwidth_hz = matching_bandwidth_hz
 
-    def add(self, sig: AbstractSignal, device: str):
+    def add(self, sig: AbstractSignal):
         # discard if non-signal is added
         if not isinstance(sig, Signal):
             return
@@ -41,7 +40,7 @@ class CalibrationConsumer(AbstractConsumer):
             logger.debug(f"{sig.frequency + self.bandwidth_hz / 2} < {self.calibration_freq}")
             return
 
-        i = self.devices.index(device)
+        i = self.devices.index(sig.device)
 
         if self.maxima[i] > sig.avg:
             return
@@ -63,70 +62,44 @@ class CalibrationConsumer(AbstractConsumer):
 
 class SignalMatcher(AbstractConsumer):
     def __init__(self,
-                 csv: bool,
-                 csv_path: str,
-                 match_stdout: bool,
-                 mqtt: bool,
-                 mqtt_host: str,
-                 mqtt_port: int,
+                 device: List[str],
                  matching_timeout_s: float,
-                 matching_time_diff_ms: float,
+                 matching_time_diff_s: float,
                  matching_bandwidth_hz: float,
+                 signal_queue: multiprocessing.Queue,
                  matching_duration_diff_ms: float = None,
                  **kwargs,
                  ):
+        self.devices = device
         self.matching_timeout = datetime.timedelta(seconds=matching_timeout_s)
-        self.matching_time_diff = datetime.timedelta(milliseconds=matching_time_diff_ms)
+        self.matching_time_diff = datetime.timedelta(seconds=matching_time_diff_s)
         self.matching_bandwidth_hz = float(matching_bandwidth_hz)
         self.matching_duration_diff = datetime.timedelta(milliseconds=matching_duration_diff_ms) if matching_duration_diff_ms else None
-        self._callbacks: List[Callable] = []
-
-        ts = datetime.datetime.now()
-
-        # add stdout consumer
-        if match_stdout:
-            stdout_consumer = CSVConsumer(sys.stdout)
-            self._callbacks.append(stdout_consumer.add)
-
-        # add csv consumer
-        if csv:
-            os.makedirs(csv_path, exist_ok=True)
-            csv_path = f"{csv_path}/{ts:%Y-%m-%dT%H%M%S}-matched.csv"
-            out = open(csv_path, "w")
-            csv_consumer = CSVConsumer(out, header=MatchedSignal.header)
-            self._callbacks.append(csv_consumer.add)
-
-        # add mqtt consumer
-        if mqtt:
-            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port)
-            self._callbacks.append(mqtt_consumer.add)
+        self.signal_queue = signal_queue
 
         self._matched: List[MatchedSignal] = []
 
     def consume(self, msig: MatchedSignal):
-        [callback(msig, "matched") for callback in self._callbacks]
+        self.signal_queue.put(msig)
         self._matched.remove(msig)
 
-    def add(self, sig: AbstractSignal, device: str):
+    def add(self, sig: AbstractSignal):
         if not isinstance(sig, Signal):
             return
         now = sig.ts
 
         for msig in self._matched:
             if msig.ts_mid < now - self.matching_timeout:
-                logger.debug(f"Timed out {msig}, removing.")
+                logger.info(f"Timed out {msig}, consuming.")
                 self.consume(msig)
                 continue
 
             if msig.has_member(sig, bandwidth=self.matching_bandwidth_hz, time_diff=self.matching_time_diff, duration_diff=self.matching_duration_diff):
-                msig.add_member(device, sig)
-                if len(msig._sigs) < 4:
-                    logger.debug(f"Found member of {msig}")
-                elif len(msig._sigs) == 4:
-                    logger.info(f"Completed {msig}, consuming and removing.")
-                    self.consume(msig)
+                msig.add_member(sig)
+                logger.debug(f"Found member of {msig}")
                 return
 
-        msig = MatchedSignal(device, sig)
+        msig = MatchedSignal(self.devices)
+        msig.add_member(sig)
         logger.debug(f"Created new {msig}")
         self._matched.append(msig)

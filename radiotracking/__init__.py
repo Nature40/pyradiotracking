@@ -39,18 +39,21 @@ class Signal(AbstractSignal):
     avg_dBW: float
     std_dB: float
     snr_dB: float
+    device: str
 
     def __init__(
         self,
+        device: str,
         ts: Union[datetime.datetime, str],
         frequency: Union[float, str],
         duration: Union[datetime.timedelta, float, str],
-        min_dBW: Union[float, str],
         max_dBW: Union[float, str],
         avg_dBW: Union[float, str],
         std_dB: Union[float, str],
+        noise_dBW: Union[float, str],
         snr_dB: Union[float, str],
     ):
+        self.device = device
         if isinstance(ts, datetime.datetime):
             self.ts = ts
         else:
@@ -62,9 +65,9 @@ class Signal(AbstractSignal):
             self.duration = datetime.timedelta(seconds=float(duration))
 
         self.max = float(max_dBW)
-        self.min = float(min_dBW)
         self.avg = float(avg_dBW)
         self.std = float(std_dB)
+        self.noise = float(noise_dBW)
         self.snr = float(snr_dB)
 
     @property
@@ -72,39 +75,42 @@ class Signal(AbstractSignal):
         return self.ts + (self.duration / 2.0)
 
     header = [
+        "Device",
         "Time",
         "Frequency",
         "Duration",
-        "min (dBW)",
         "max (dBW)",
         "avg (dBW)",
         "std (dB)",
+        "noise (dBW)",
         "snr (dB)",
     ]
 
     @property
     def as_list(self):
         return [
+            self.device,
             self.ts,
             self.frequency,
             self.duration,
-            self.min,
             self.max,
             self.avg,
             self.std,
+            self.noise,
             self.snr,
         ]
 
     def __repr__(self):
-        return f"Signal({self.ts}, {self.frequency}, {self.duration}, {self.min}, {self.max}, {self.avg}, {self.std}, {self.snr})"
+        return f"Signal({self.device}, {self.ts}, {self.frequency}, {self.duration}, {self.min}, {self.max}, {self.avg}, {self.std}, {self.snr})"
 
     def __str__(self):
-        return f"Signal<{self.frequency/1000/1000} MHz, {self.duration.total_seconds()*1000:.2} ms, {self.max} dBW>"
+        return f"Signal<{self.device}, {self.frequency/1000/1000} MHz, {self.duration.total_seconds()*1000:.2} ms, {self.max} dBW>"
 
 
 class MatchedSignal(AbstractSignal):
-    def __init__(self, device: str, sig: Signal):
-        self._sigs: Dict[str, Signal] = {device: sig}
+    def __init__(self, devices: List[str]):
+        self.devices = devices
+        self._sigs: Dict[str, Signal] = {}
 
     @property
     def duration(self):
@@ -122,12 +128,14 @@ class MatchedSignal(AbstractSignal):
     def frequency(self):
         return statistics.median([sig.frequency for sig in self._sigs.values()])
 
-    header = [
-        "Time",
-        "Frequency",
-        "Duration",
-        "Count",
-    ]
+    @property
+    def header(self):
+        return [
+            "Time",
+            "Frequency",
+            "Duration",
+            *self.devices,
+        ]
 
     @property
     def as_list(self) -> list:
@@ -135,7 +143,7 @@ class MatchedSignal(AbstractSignal):
             self.ts,
             self.frequency,
             self.duration,
-            len(self._sigs),
+            *[self._sigs[d].avg if d in self._sigs else None for d in self.devices]
         ]
 
     def __str__(self):
@@ -150,19 +158,19 @@ class MatchedSignal(AbstractSignal):
 
         # if freq (including bw) out of range of freq
         if sig.frequency - bandwidth / 2 > self.frequency:
-            logger.debug(f"{sig.frequency - bandwidth / 2} > {self.frequency}")
+            logger.debug(f"1 {sig.frequency - bandwidth / 2} > {self.frequency}")
             return False
         if sig.frequency + bandwidth / 2 < self.frequency:
-            logger.debug(f"{sig.frequency + bandwidth / 2} < {self.frequency}")
+            logger.debug(f"2 {sig.frequency + bandwidth / 2} < {self.frequency}")
             return False
 
         # if start (minus diff) is after end
-        if sig.ts - (time_diff / 2) > (self.ts + self.duration):
-            logger.debug(f"{sig.ts - (time_diff / 2)} > {(self.ts + self.duration)}")
+        if sig.ts - time_diff > (self.ts + self.duration):
+            logger.debug(f"3 {sig.ts - time_diff} > {(self.ts + self.duration)}")
             return False
         # if end (plus diff) is before start
-        if (sig.ts + sig.duration) + (time_diff / 2) < self.ts:
-            logger.debug(f"{(sig.ts + sig.duration) + (time_diff / 2)} < {self.ts}")
+        if (sig.ts + sig.duration) + time_diff < self.ts:
+            logger.debug(f"4 {(sig.ts + sig.duration) + time_diff} < {self.ts}")
             return False
 
         # if no duration_diff is present, don't match for it
@@ -174,5 +182,7 @@ class MatchedSignal(AbstractSignal):
 
         return True
 
-    def add_member(self, device: str, sig: Signal):
-        self._sigs[device] = sig
+    def add_member(self, sig: Signal):
+        if sig.device in self._sigs:
+            logger.warning(f"Signal of {sig.device} already contained in {self}")
+        self._sigs[sig.device] = sig
