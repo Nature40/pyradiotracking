@@ -5,6 +5,7 @@ import os
 import signal
 import sys
 import time
+import pytz
 from typing import Callable, List, Union
 
 import numpy as np
@@ -199,12 +200,15 @@ class SignalAnalyzer(multiprocessing.Process):
             + f"clock drift: {clock_drift:.2} s, "
             + f"filtered {len(filtered)} / {len(signals)} signals, "
             + f"block len: {(buffer_len_dt.total_seconds())*100:.1f} ms, "
-            + f"compute: {(bench_consume-bench_start)*100:.1f} ms")
+            + f"compute: {(bench_consume-bench_start)*100:.1f} ms"
+        )
 
-        logger.debug(f"timings - spectogram: {(bench_spectrogram - bench_start)*100:.1f} ms, "
-                     + f"extract: {(bench_extract-bench_spectrogram)*100:.1f} ms, "
-                     + f"filter: {(bench_filter-bench_extract)*100:.1f} ms, "
-                     + f"consume: {(bench_consume-bench_filter)*100:.1f} ms")
+        logger.debug(
+            f"timings - spectogram: {(bench_spectrogram - bench_start)*100:.1f} ms, "
+            + f"extract: {(bench_extract-bench_spectrogram)*100:.1f} ms, "
+            + f"filter: {(bench_filter-bench_extract)*100:.1f} ms, "
+            + f"consume: {(bench_consume-bench_filter)*100:.1f} ms"
+        )
         self._spectrogram_last = spectrogram
 
     def consume_signal(self, signal):
@@ -349,7 +353,7 @@ class SignalAnalyzer(multiprocessing.Process):
                 std_dB = np.std(dB(data))
                 snr_dB = dB(avg / freq_avg)
 
-                signal = Signal(ts, freq, duration, min_dBW, max_dBW, avg_dBW, std_dB, snr_dB)
+                signal = Signal(ts.astimezone(pytz.utc), freq, duration, min_dBW, max_dBW, avg_dBW, std_dB, snr_dB)
                 signals.append(signal)
 
         return signals
