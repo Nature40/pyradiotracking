@@ -6,6 +6,7 @@ import multiprocessing
 import queue
 import socket
 from abc import ABC, abstractmethod
+from io import StringIO
 from typing import List, Tuple
 
 import cbor2 as cbor
@@ -31,6 +32,13 @@ def cborify(encoder, o):
     if isinstance(o, datetime.timedelta):
         o: datetime.timedelta
         encoder.encode(cbor.CBORTag(1337, o.total_seconds()))
+
+
+def csvify(o):
+    if isinstance(o, datetime.timedelta):
+        return o.total_seconds()
+
+    return o
 
 
 class AbstractConsumer(ABC):
@@ -88,7 +96,9 @@ class MQTTConsumer(AbstractConsumer):
         self.client.publish(path + "/json", payload_json)
 
         # publish csv
-        payload_csv = ",".join([str(val) for val in signal.as_list])
+        csv_io = StringIO()
+        csv.writer(csv_io, dialect="excel", delimiter=";").writerow([csvify(v) for v in signal.as_list])
+        payload_csv = csv_io.getvalue().splitlines()[0]
         self.client.publish(path + "/csv", payload_csv)
 
         # publish cbor
@@ -112,7 +122,7 @@ class CSVConsumer(AbstractConsumer):
         self.out.flush()
 
     def add(self, signal: AbstractSignal, device: str):
-        self.writer.writerow(signal.as_list)
+        self.writer.writerow([csvify(v) for v in signal.as_list])
         self.out.flush()
 
         logger.debug(f"published {signal} via csv")
