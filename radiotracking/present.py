@@ -266,6 +266,11 @@ class Dashboard(AbstractConsumer, threading.Thread):
             x=[msig._sigs["0"].avg - msig._sigs["2"].avg for msig in completed_signals],
             y=[msig._sigs["1"].avg - msig._sigs["3"].avg for msig in completed_signals],
             mode="markers",
+            marker=dict(
+                color=[msig.ts.timestamp() for msig in completed_signals],
+                colorscale='Cividis_r',
+                opacity=0.5,
+            )
         )
         traces.append(trace)
 
@@ -274,10 +279,10 @@ class Dashboard(AbstractConsumer, threading.Thread):
             "layout": {
                 "title": "Matched Frequencies",
                 "xaxis": {"title": "Horizontal Difference",
-                          "range": [-23, 23],
+                          "range": [-50, 50],
                           },
                 "yaxis": {"title": "Vertical Difference",
-                          "range": [-23, 23],
+                          "range": [-50, 50],
                           },
             },
         }
