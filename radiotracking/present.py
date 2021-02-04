@@ -1,6 +1,6 @@
 import collections
 import threading
-from typing import Deque, Iterable, List, Tuple
+from typing import DefaultDict, Deque, Iterable, List, Tuple
 
 import dash
 import dash_core_components as dcc
@@ -12,7 +12,17 @@ from werkzeug.serving import ThreadedWSGIServer
 from radiotracking import AbstractSignal, MatchedSignal, Signal
 from radiotracking.consume import AbstractConsumer
 
-SDR_COLORS = {"3": "blue", "2": "orange", "1": "red", "0": "green", }
+SDR_COLORS: DefaultDict[str, str] = collections.defaultdict(lambda: "grey")
+SDR_COLORS.update({
+    "0": "green",
+    "1": "red",
+    "2": "orange",
+    "3": "blue",
+    "green": "green",
+    "red": "red",
+    "yellow": "yellow",
+    "blue": "blue",
+})
 
 
 def group(sigs: Iterable[Signal], by: str) -> List[Tuple[str, List[Signal]]]:
