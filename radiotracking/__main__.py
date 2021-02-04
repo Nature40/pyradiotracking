@@ -12,7 +12,6 @@ from typing import List
 from radiotracking.analyze import SignalAnalyzer
 from radiotracking.consume import ProcessConnector
 from radiotracking.match import CalibrationConsumer, SignalMatcher
-from radiotracking.present import Dashboard
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +142,7 @@ class Runner:
 
         # add vizualization consumer
         if self.args.dashboard:
+            from radiotracking.present import Dashboard
             self.dashboard = Dashboard(**self.args.__dict__)
             self.connector.consumers.append(self.dashboard)
         else:
