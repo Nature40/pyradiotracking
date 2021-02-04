@@ -101,7 +101,7 @@ class Signal(AbstractSignal):
         ]
 
     def __repr__(self):
-        return f"Signal({self.device}, {self.ts}, {self.frequency}, {self.duration}, {self.min}, {self.max}, {self.avg}, {self.std}, {self.snr})"
+        return f"Signal({self.device}, {self.ts}, {self.frequency}, {self.duration}, {self.max}, {self.avg}, {self.std}, {self.noise}, {self.snr})"
 
     def __str__(self):
         return f"Signal<{self.device}, {self.frequency/1000/1000} MHz, {self.duration.total_seconds()*1000:.2} ms, {self.max} dBW>"
