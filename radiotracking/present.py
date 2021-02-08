@@ -14,10 +14,10 @@ from radiotracking.consume import AbstractConsumer
 
 SDR_COLORS: DefaultDict[str, str] = collections.defaultdict(lambda: "grey")
 SDR_COLORS.update({
-    "0": "green",
-    "1": "red",
-    "2": "orange",
-    "3": "blue",
+    "0": "blue",
+    "1": "orange",
+    "2": "red",
+    "3": "green",
     "green": "green",
     "red": "red",
     "yellow": "yellow",
@@ -60,7 +60,10 @@ class Dashboard(AbstractConsumer, threading.Thread):
         frequency_min = center_freq - sample_rate / 2
         frequency_max = center_freq + sample_rate / 2
 
-        self.app = dash.Dash(__name__)
+        self.app = dash.Dash(__name__,
+                             meta_tags=[
+                                 {"name": "viewport", "content": "width=device-width, initial-scale=1"}
+                             ])
         self.app.layout = html.Div(children=[
             html.H1(children="RadioTracking Dashboard"),
             html.Div([
@@ -117,9 +120,10 @@ class Dashboard(AbstractConsumer, threading.Thread):
                                10: "10 s", },
                     ),
                 ]),
-                dcc.Graph(id="signal-noise"),
-                dcc.Graph(id="frequency-histogram"),
-                dcc.Graph(id="signal-match"),
+                dcc.Graph(id="signal-noise", style={"break-inside": "avoid-column"}),
+                dcc.Graph(id="frequency-histogram", style={"break-inside": "avoid-column"}),
+                dcc.Graph(id="signal-match", style={"break-inside": "avoid-column"}),
+                dcc.Graph(id="signal-variance", style={"break-inside": "avoid-column"}),
             ], style={"columns": "2 359px"}),
             dcc.Interval(id="update", interval=1000),
         ], style={"font-family": "sans-serif"})
@@ -145,6 +149,13 @@ class Dashboard(AbstractConsumer, threading.Thread):
             Input("frequency-slider", "value"),
             Input("duration-slider", "value"),
         ])(self.update_frequency_histogram)
+        self.app.callback(Output("signal-variance", "figure"), [
+            Input("update", "n_intervals"),
+            Input("power-slider", "value"),
+            Input("snr-slider", "value"),
+            Input("frequency-slider", "value"),
+            Input("duration-slider", "value"),
+        ])(self.update_signal_variance)
 
         self.app.callback(Output("signal-match", "figure"), [
             Input("update", "n_intervals"),
@@ -221,6 +232,35 @@ class Dashboard(AbstractConsumer, threading.Thread):
             "layout": {
                 "title": "Signal to Noise",
                 "xaxis": {"title": "SNR (dB)"},
+                "yaxis": {"title": "Signal Power (dBW)",
+                          "range": power},
+                "legend": {"title": "SDR Receiver"},
+            },
+        }
+
+    def update_signal_variance(self, n, power, snr, freq, duration):
+        traces = []
+        sigs = self.select_sigs(power, snr, freq, duration)
+
+        for trace_sdr, sdr_sigs in group(sigs, "device"):
+            trace = go.Scatter(
+                x=[sig.std for sig in sdr_sigs],
+                y=[sig.avg for sig in sdr_sigs],
+                name=trace_sdr,
+                mode="markers",
+                marker=dict(
+                    size=[sig.duration.total_seconds() * 1000 for sig in sdr_sigs],
+                    opacity=0.3,
+                    color=SDR_COLORS[trace_sdr],
+                ),
+            )
+            traces.append(trace)
+
+        return {
+            "data": traces,
+            "layout": {
+                "title": "Signal Variance",
+                "xaxis": {"title": "Standard Deviation (dB)"},
                 "yaxis": {"title": "Signal Power (dBW)",
                           "range": power},
                 "legend": {"title": "SDR Receiver"},
