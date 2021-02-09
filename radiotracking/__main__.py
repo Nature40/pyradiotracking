@@ -7,9 +7,11 @@ import multiprocessing
 import os
 import signal
 import subprocess
+from ast import literal_eval
 from typing import List
 
 from radiotracking.analyze import SignalAnalyzer
+from radiotracking.config import ArgConfParser
 from radiotracking.consume import ProcessConnector
 from radiotracking.match import CalibrationConsumer, SignalMatcher
 
@@ -17,67 +19,64 @@ logger = logging.getLogger(__name__)
 
 
 class Runner:
-    class FileArgumentParser(argparse.ArgumentParser):
-        def convert_arg_line_to_args(self, line):
-            return line.split(";")[0].split()
-
-    parser = FileArgumentParser(
+    parser = ArgConfParser(
         prog="radiotracking",
         description="Detect signals of wildlife tracking systems with RTL SDR devices",
-        fromfile_prefix_chars="@",
+        config_dest="config",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # generic options
     parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
-    parser.add_argument("--calibration-freq", help="frequency to use for calibration (Hz), default: None", default=None, type=float)
+    parser.add_argument("--config", help="configuration file", default="etc/radiotracking.ini", type=str)
+    parser.add_argument("--calibration-freq", help="frequency to use for calibration (Hz)", default=None, type=float)
 
     # sdr / sampling options
-    sdr_options = parser.add_argument_group("software-defined radio (SDR)")
+    sdr_options = parser.add_argument_group("rtl-sdr")
     sdr_options.add_argument("-d", "--device", help="device indexes or names, default: 0", default=[0], nargs="*")
     sdr_options.add_argument("-c", "--calibration", help="device calibration gain (dB), default: 0", default=[], nargs="*", type=float)
     sdr_options.add_argument("-f", "--center-freq", help="center frequency to tune to (Hz), default: 150100001", default=150100001, type=int)
     sdr_options.add_argument("-s", "--sample-rate", help="sample rate (Hz), default: 300000", default=300000, type=int)
     sdr_options.add_argument("-b", "--sdr-callback-length", help="number of samples to read per batch", default=None, type=int)
-    sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6, default: 49.6", default="49.6")
-    sdr_options.add_argument("--sdr-max-restart", help="maximal restart count per SDR device, default: 3", default=3, type=int)
-    sdr_options.add_argument("--sdr-timeout-s", help="Time after which an SDR device is considered unrepsonsive (s), default: 2", default=2, type=int)
+    sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6", default="49.6", type=float)
+    sdr_options.add_argument("--sdr-max-restart", help="maximal restart count per SDR device", default=3, type=int)
+    sdr_options.add_argument("--sdr-timeout-s", help="Time after which an SDR device is considered unrepsonsive (s)", default=2, type=int)
 
     # analysis options
-    analysis_options = parser.add_argument_group("signal analysis")
-    analysis_options.add_argument("-n", "--fft-nperseg", help="fft number of samples, default: 256", default=256, type=int)
-    analysis_options.add_argument(
-        "-w", "--fft-window", help="fft window function, default: 'hamming', see https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.spectrogram.html", type=eval, default="'hamming'"
-    )
-    analysis_options.add_argument("-t", "--signal-threshold-dbw", help="lower limit for signal intensity (dBW), default: -50.0", type=float, default=-50.0)
-    analysis_options.add_argument("-r", "--snr-threshold-db", help="lower limit for signal-to-noise ratio (dB), default: 10.0", type=float, default=10.0)
-    analysis_options.add_argument("-l", "--signal-min-duration-ms", help="lower limit for signal duration (ms), default: 8", type=float, default=8)
-    analysis_options.add_argument("-u", "--signal-max-duration-ms", help="upper limit for signal duration (ms), default: 40", type=float, default=40)
+    analysis_options = parser.add_argument_group("analysis")
+    analysis_options.add_argument("-n", "--fft-nperseg", help="fft number of samples", default=256, type=int)
+    analysis_options.add_argument("-w", "--fft-window", help="fft window function", type=literal_eval, default="'hamming'")
+    analysis_options.add_argument("-t", "--signal-threshold-dbw", help="lower limit for signal intensity (dBW)", type=float, default=-90.0)
+    analysis_options.add_argument("-r", "--snr-threshold-db", help="lower limit for signal-to-noise ratio (dB)", type=float, default=5.0)
+    analysis_options.add_argument("-l", "--signal-min-duration-ms", help="lower limit for signal duration (ms)", type=float, default=8)
+    analysis_options.add_argument("-u", "--signal-max-duration-ms", help="upper limit for signal duration (ms)", type=float, default=40)
 
     # analysis options
-    matching_options = parser.add_argument_group("signal matching")
-    matching_options.add_argument("--matching-timeout-s", help="timeout for adding signals to a match group, default: 2.0", type=float, default=2.0)
-    matching_options.add_argument("-mt", "--matching-time-diff-s", help="error margin for timestamp matching (s), default: 0", type=float, default=0)
-    matching_options.add_argument("-mb", "--matching-bandwidth-hz", help="error margin for frequency (Hz), default: 0", type=float, default=0)
-    matching_options.add_argument("-md", "--matching-duration-diff-ms", help="error margin for duration (ms), default: None (do not match)", type=float)
+    matching_options = parser.add_argument_group("matching")
+    matching_options.add_argument("--matching-timeout-s", help="timeout for adding signals to a match group", type=float, default=2.0)
+    matching_options.add_argument("-mt", "--matching-time-diff-s", help="error margin for timestamp matching (s)", type=float, default=0)
+    matching_options.add_argument("-mb", "--matching-bandwidth-hz", help="error margin for frequency (Hz)", type=float, default=0)
+    matching_options.add_argument("-md", "--matching-duration-diff-ms", help="error margin for duration (ms)", type=float)
 
     # data publishing options
-    publish_options = parser.add_argument_group("data publishing")
-    publish_options.add_argument("--sig-stdout", help="enable stdout signal publishing, default: False", action="store_true")
-    publish_options.add_argument("--match-stdout", help="enable stdout matched signals publishing, default: False", action="store_true")
-    publish_options.add_argument("--csv", help="enable csv data publishing, default: False", action="store_true")
-    publish_options.add_argument("--csv-path", help=f"csv folder path, default: ./data/{os.uname()[1]}/radiotracking", default=f"./data/{os.uname()[1]}/radiotracking")
-    publish_options.add_argument("--mqtt", help="enable mqtt data publishing, default: False", action="store_true")
-    publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker, default: localthost", default="localhost")
-    publish_options.add_argument("--mqtt-port", help="port of mqtt broker, default: 1883", default=1883, type=int)
+    publish_options = parser.add_argument_group("publish")
+    publish_options.add_argument("--sig-stdout", help="enable stdout signal publishing", action="store_true")
+    publish_options.add_argument("--match-stdout", help="enable stdout matched signals publishing", action="store_true")
+    publish_options.add_argument("--path", help="file output path", default=f"./data/{os.uname()[1]}/radiotracking", type=str)
+    publish_options.add_argument("--csv", help="enable csv data publishing", action="store_true")
+    publish_options.add_argument("--export-config", help="export configuration", action="store_true")
+    publish_options.add_argument("--mqtt", help="enable mqtt data publishing", action="store_true")
+    publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker", default="localhost", type=str)
+    publish_options.add_argument("--mqtt-port", help="port of mqtt broker", default=1883, type=int)
 
     # dashboard options
     dashboard_options = parser.add_argument_group("dashboard")
     dashboard_options.add_argument("--dashboard", help="enable web-dashboard", action="store_true")
-    dashboard_options.add_argument("--dashboard-host", help="hostname to bind the dashboard to, default: localhost", default="localhost")
-    dashboard_options.add_argument("--dashboard-port", help="port to bind the dashboard to, default: 8050", default=8050, type=int)
-    dashboard_options.add_argument("--dashboard-signals", help="number of signals to present, default: 100", default=100, type=int)
+    dashboard_options.add_argument("--dashboard-host", help="hostname to bind the dashboard to", default="localhost", type=str)
+    dashboard_options.add_argument("--dashboard-port", help="port to bind the dashboard to", default=8050, type=int)
+    dashboard_options.add_argument("--dashboard-signals", help="number of signals to present", default=100, type=int)
 
-    @staticmethod
+    @ staticmethod
     def create_and_start(dargs: argparse.Namespace, queue: multiprocessing.Queue) -> SignalAnalyzer:
         analyzer = SignalAnalyzer(signal_queue=queue, **vars(dargs))
         analyzer.start()
@@ -125,6 +124,14 @@ class Runner:
         elif len(self.args.calibration) != len(self.args.device):
             logger.critical(f"Calibration values {self.args.calibration} do not match devices {self.args.device}.")
             exit(1)
+
+        # export configuration
+        if self.args.export_config:
+            os.makedirs(self.args.path, exist_ok=True)
+            ts = datetime.datetime.now()
+            config_export_path = f"{self.args.path}/{ts:%Y-%m-%dT%H%M%S}.ini"
+            with open(config_export_path, "w") as config_export_file:
+                Runner.parser.write_config(self.args, config_export_file)
 
         # create process connector
         self.connector = ProcessConnector(**self.args.__dict__)

@@ -119,8 +119,8 @@ class ProcessConnector:
                  device: List[str],
                  sig_stdout: bool,
                  match_stdout: bool,
+                 path: str,
                  csv: bool,
-                 csv_path: str,
                  mqtt: bool,
                  mqtt_host: str,
                  mqtt_port: int,
@@ -142,15 +142,15 @@ class ProcessConnector:
         # add csv consumer
         if csv:
             # create output directory
-            os.makedirs(csv_path, exist_ok=True)
+            os.makedirs(path, exist_ok=True)
 
             # create consumer for signals
-            signal_csv_path = f"{csv_path}/{ts:%Y-%m-%dT%H%M%S}.csv"
+            signal_csv_path = f"{path}/{ts:%Y-%m-%dT%H%M%S}.csv"
             signal_csv_consumer = CSVConsumer(open(signal_csv_path, "w"), cls=Signal, header=Signal.header)
             self.consumers.append(signal_csv_consumer)
 
             # create consumer for matched signals
-            matched_csv_path = f"{csv_path}/{ts:%Y-%m-%dT%H%M%S}-matched.csv"
+            matched_csv_path = f"{path}/{ts:%Y-%m-%dT%H%M%S}-matched.csv"
             matched_csv_consumer = CSVConsumer(open(matched_csv_path, "w"), cls=MatchedSignal, header=MatchedSignal(device).header)
             self.consumers.append(matched_csv_consumer)
 
