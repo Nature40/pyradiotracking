@@ -1,8 +1,7 @@
 from argparse import ArgumentParser, Namespace
 from ast import literal_eval
 from configparser import ConfigParser
-from io import TextIOWrapper
-from typing import List, Optional, Sequence, Text, Tuple
+from typing import List, Optional, Sequence, Text, TextIO, Tuple
 
 
 class ArgConfParser(ArgumentParser):
@@ -49,7 +48,7 @@ class ArgConfParser(ArgumentParser):
 
         return conf_dict
 
-    def write_config(self, args: Namespace, file: TextIOWrapper, help: bool = False):
+    def write_config(self, args: Namespace, file: TextIO, help: bool = False):
         config = ConfigParser(allow_no_value=help)
 
         for group in self._action_groups:
