@@ -1,3 +1,4 @@
+import argparse
 import collections
 import threading
 from typing import DefaultDict, Deque, Iterable, List, Tuple
@@ -10,6 +11,7 @@ from dash.dependencies import Input, Output
 from werkzeug.serving import ThreadedWSGIServer
 
 from radiotracking import AbstractSignal, MatchedSignal, Signal
+from radiotracking.config import ArgConfParser
 from radiotracking.consume import AbstractConsumer
 
 SDR_COLORS: DefaultDict[str, str] = collections.defaultdict(lambda: "grey")
@@ -60,81 +62,61 @@ class Dashboard(AbstractConsumer, threading.Thread):
         frequency_min = center_freq - sample_rate / 2
         frequency_max = center_freq + sample_rate / 2
 
-        self.app = dash.Dash(__name__,
-                             meta_tags=[
-                                 {"name": "viewport", "content": "width=device-width, initial-scale=1"}
-                             ])
-        self.app.layout = html.Div(children=[
-            html.H1(children="RadioTracking Dashboard"),
-            html.Div([
-                dcc.Graph(id="signal-time"),
-            ]),
-            html.Div([
-                html.Div(id="settings", style={"break-inside": "avoid-column"}, children=[
-                    html.H2("Vizualization Filters"),
-                    html.H3("Signal Power"),
-                    dcc.RangeSlider(
-                        id="power-slider",
-                        min=signal_threshold_dbw, max=signal_threshold_dbw_max, step=0.1,
-                        value=[signal_threshold_dbw, signal_threshold_dbw_max],
-                        marks={int(signal_threshold_dbw): f"{signal_threshold_dbw} dBW",
-                               int(signal_threshold_dbw_max): f"{signal_threshold_dbw_max} dBW", },
-                    ),
-                    html.H3("SNR"),
-                    dcc.RangeSlider(
-                        id="snr-slider",
-                        min=snr_threshold_db, max=snr_threshold_db_max, step=0.1,
-                        value=[snr_threshold_db, snr_threshold_db_max],
-                        marks={int(snr_threshold_db): f"{snr_threshold_db} dBW",
-                               int(snr_threshold_db_max): f"{snr_threshold_db_max} dBW", },
-                    ),
-                    html.H3("Frequency Range"),
-                    dcc.RangeSlider(
-                        id="frequency-slider",
-                        min=frequency_min, max=frequency_max, step=1,
-                        marks={int(frequency_min): f"{frequency_min/1000/1000:.2f} MHz",
-                               int(center_freq): f"{center_freq/1000/1000:.2f} MHz",
-                               int(frequency_max): f"{frequency_max/1000/1000:.2f} MHz",
-                               },
-                        value=[frequency_min, frequency_max],
-                        allowCross=False,
-                    ),
-                    html.H3("Signal Duration"),
-                    dcc.RangeSlider(
-                        id="duration-slider",
-                        min=signal_min_duration_ms, max=signal_max_duration_ms, step=0.1,
-                        marks={int(signal_min_duration_ms): f"{signal_min_duration_ms} ms",
-                               int(signal_max_duration_ms): f"{signal_max_duration_ms} ms",
-                               },
-                        value=[signal_min_duration_ms, signal_max_duration_ms],
-                        allowCross=False,
-                    ),
-                    html.H2("Dashboard Update Interval"),
-                    dcc.Slider(
-                        id="interval-slider",
-                        min=0.1, max=10, step=0.1,
-                        value=1.0,
-                        marks={0.1: "0.1 s",
-                               1: "1 s",
-                               5: "5 s",
-                               10: "10 s", },
-                    ),
-                ]),
-                dcc.Graph(id="signal-noise", style={"break-inside": "avoid-column"}),
-                dcc.Graph(id="frequency-histogram", style={"break-inside": "avoid-column"}),
-                dcc.Graph(id="signal-match", style={"break-inside": "avoid-column"}),
-                dcc.Graph(id="signal-variance", style={"break-inside": "avoid-column"}),
-            ], style={"columns": "2 359px"}),
-            dcc.Interval(id="update", interval=1000),
-        ], style={"font-family": "sans-serif"})
+        self.app = dash.Dash(__name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}])
 
-        self.app.callback(Output("signal-time", "figure"), [
-            Input("update", "n_intervals"),
-            Input("power-slider", "value"),
-            Input("snr-slider", "value"),
-            Input("frequency-slider", "value"),
-            Input("duration-slider", "value"),
-        ])(self.update_signal_time)
+        graph_columns = html.Div(children=[], style={"columns": "2 359px"})
+        graph_columns.children.append(
+            html.Div(id="settings", style={"break-inside": "avoid-column"}, children=[
+                html.H2("Vizualization Filters"),
+                html.H3("Signal Power"),
+                dcc.RangeSlider(
+                    id="power-slider",
+                    min=signal_threshold_dbw, max=signal_threshold_dbw_max, step=0.1,
+                    value=[signal_threshold_dbw, signal_threshold_dbw_max],
+                    marks={int(signal_threshold_dbw): f"{signal_threshold_dbw} dBW",
+                           int(signal_threshold_dbw_max): f"{signal_threshold_dbw_max} dBW", },
+                ),
+                html.H3("SNR"),
+                dcc.RangeSlider(
+                    id="snr-slider",
+                    min=snr_threshold_db, max=snr_threshold_db_max, step=0.1,
+                    value=[snr_threshold_db, snr_threshold_db_max],
+                    marks={int(snr_threshold_db): f"{snr_threshold_db} dBW",
+                           int(snr_threshold_db_max): f"{snr_threshold_db_max} dBW", },
+                ),
+                html.H3("Frequency Range"),
+                dcc.RangeSlider(
+                    id="frequency-slider",
+                    min=frequency_min, max=frequency_max, step=1,
+                    marks={int(frequency_min): f"{frequency_min/1000/1000:.2f} MHz",
+                           int(center_freq): f"{center_freq/1000/1000:.2f} MHz",
+                           int(frequency_max): f"{frequency_max/1000/1000:.2f} MHz",
+                           },
+                    value=[frequency_min, frequency_max],
+                    allowCross=False,
+                ),
+                html.H3("Signal Duration"),
+                dcc.RangeSlider(
+                    id="duration-slider",
+                    min=signal_min_duration_ms, max=signal_max_duration_ms, step=0.1,
+                    marks={int(signal_min_duration_ms): f"{signal_min_duration_ms} ms",
+                           int(signal_max_duration_ms): f"{signal_max_duration_ms} ms",
+                           },
+                    value=[signal_min_duration_ms, signal_max_duration_ms],
+                    allowCross=False,
+                ),
+                html.H2("Dashboard Update Interval"),
+                dcc.Slider(
+                    id="interval-slider",
+                    min=0.1, max=10, step=0.1,
+                    value=1.0,
+                    marks={0.1: "0.1 s",
+                           1: "1 s",
+                           5: "5 s",
+                           10: "10 s", },
+                ),
+            ]))
+        graph_columns.children.append(dcc.Graph(id="signal-noise", style={"break-inside": "avoid-column"}))
         self.app.callback(Output("signal-noise", "figure"), [
             Input("update", "n_intervals"),
             Input("power-slider", "value"),
@@ -142,6 +124,8 @@ class Dashboard(AbstractConsumer, threading.Thread):
             Input("frequency-slider", "value"),
             Input("duration-slider", "value"),
         ])(self.update_signal_noise)
+
+        graph_columns.children.append(dcc.Graph(id="frequency-histogram", style={"break-inside": "avoid-column"}))
         self.app.callback(Output("frequency-histogram", "figure"), [
             Input("update", "n_intervals"),
             Input("power-slider", "value"),
@@ -149,6 +133,13 @@ class Dashboard(AbstractConsumer, threading.Thread):
             Input("frequency-slider", "value"),
             Input("duration-slider", "value"),
         ])(self.update_frequency_histogram)
+
+        graph_columns.children.append(dcc.Graph(id="signal-match", style={"break-inside": "avoid-column"}))
+        self.app.callback(Output("signal-match", "figure"), [
+            Input("update", "n_intervals"),
+        ])(self.update_signal_match)
+
+        graph_columns.children.append(dcc.Graph(id="signal-variance", style={"break-inside": "avoid-column"}))
         self.app.callback(Output("signal-variance", "figure"), [
             Input("update", "n_intervals"),
             Input("power-slider", "value"),
@@ -157,11 +148,23 @@ class Dashboard(AbstractConsumer, threading.Thread):
             Input("duration-slider", "value"),
         ])(self.update_signal_variance)
 
-        self.app.callback(Output("signal-match", "figure"), [
-            Input("update", "n_intervals"),
-        ])(self.update_signal_match)
-
+        graph_tab = html.Div(children=[])
+        graph_tab.children.append(dcc.Interval(id="update", interval=1000))
         self.app.callback(Output("update", "interval"), [Input("interval-slider", "value")])(self.update_interval)
+
+        graph_tab.children.append(html.Div([dcc.Graph(id="signal-time"), ]))
+        self.app.callback(Output("signal-time", "figure"), [
+            Input("update", "n_intervals"),
+            Input("power-slider", "value"),
+            Input("snr-slider", "value"),
+            Input("frequency-slider", "value"),
+            Input("duration-slider", "value"),
+        ])(self.update_signal_time)
+
+        graph_tab.children.append(graph_columns)
+
+        self.app.layout = graph_tab
+        self.app.layout.style = {"font-family": "sans-serif"}
 
         self.server = ThreadedWSGIServer(dashboard_host, dashboard_port, self.app.server)
 
