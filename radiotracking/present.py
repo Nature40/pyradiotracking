@@ -1,17 +1,18 @@
 import argparse
 import collections
 import threading
-from typing import DefaultDict, Deque, Iterable, List, Tuple
+from ast import literal_eval
+from typing import DefaultDict, Deque, Iterable, List, Tuple, Union
 
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import plotly.graph_objs as go
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 from werkzeug.serving import ThreadedWSGIServer
 
 from radiotracking import AbstractSignal, MatchedSignal, Signal
-from radiotracking.config import ArgConfParser
+from radiotracking.__main__ import Runner
 from radiotracking.consume import AbstractConsumer
 
 SDR_COLORS: DefaultDict[Union[str, int], str] = collections.defaultdict(lambda: "grey")
@@ -45,6 +46,7 @@ def group(sigs: Iterable[Signal], by: str) -> List[Tuple[str, List[Signal]]]:
 
 class Dashboard(AbstractConsumer, threading.Thread):
     def __init__(self,
+                 running_args: argparse.Namespace,
                  dashboard_host: str,
                  dashboard_port: int,
                  dashboard_signals: int,
@@ -152,7 +154,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
             Input("duration-slider", "value"),
         ])(self.update_signal_variance)
 
-        graph_tab = html.Div(children=[])
+        graph_tab = dcc.Tab(label="Graphs", children=[])
         graph_tab.children.append(dcc.Interval(id="update", interval=1000))
         self.app.callback(Output("update", "interval"), [Input("interval-slider", "value")])(self.update_interval)
 
@@ -167,7 +169,76 @@ class Dashboard(AbstractConsumer, threading.Thread):
 
         graph_tab.children.append(graph_columns)
 
-        self.app.layout = graph_tab
+        config_columns = html.Div(children=[], style={"columns": "2 359px", "padding": "20pt"})
+        config_tab = dcc.Tab(label="Configuration", children=[config_columns])
+        config_columns.children.append(html.Div("Reconfiguration requires restarting of pyradiotracking. Please keep in mind, that a broken configuration might lead to failing starts."))
+        config_columns.children.append(html.Div("Parameters configured as command line arguments are loaded after the configuration file and overwrite those configured here."))
+
+        self.running_args = running_args
+        self.config_states: List[State] = []
+
+        for group in Runner.parser._action_groups:
+            # skip untitled groups
+            if not isinstance(group.title, str):
+                continue
+
+            # skip groups not used in the config file
+            if len(group._group_actions) == 0:
+                continue
+
+            group_div = html.Div(children=[], style={"break-inside": "avoid-column"})
+            config_columns.children.append(group_div)
+
+            group_div.children.append(html.H3(f"[{group.title}]"))
+
+            # iterate actions and extract values
+            for action in group._group_actions:
+                if action.dest not in vars(running_args):
+                    continue
+
+                group_div.children.append(html.P(children=[
+                    html.B(action.dest),
+                    f" - {action.help}",
+                    html.Br(),
+                    dcc.Input(id=action.dest, value=repr(vars(running_args)[action.dest])),
+                ]))
+
+                value = vars(running_args)[action.dest]
+
+                if action.type == int or isinstance(action, argparse._CountAction):
+                    if not isinstance(value, list):
+                        group_div.children[-1].children[-1].type = "number"
+                        group_div.children[-1].children[-1].step = 1
+                elif action.type == float:
+                    if not isinstance(value, list):
+                        group_div.children[-1].children[-1].type = "number"
+                elif action.type == str:
+                    group_div.children[-1].children[-1].type = "text"
+                    group_div.children[-1].children[-1].value = value
+                elif isinstance(action, argparse._StoreTrueAction):
+                    group_div.children[-1].children[-1] = dcc.Checklist(
+                        id=action.dest,
+                        options=[{"value": action.dest}, ],
+                        value=[action.dest] if value else [],
+                    )
+
+                if action.dest == "config":
+                    group_div.children[-1].children[-1].disabled = True
+
+                self.config_states.append(State(action.dest, "value"))
+
+        config_columns.children.append(html.Button('Save', id="submit-config"))
+        config_columns.children.append(html.Div(id="config-msg"))
+        self.app.callback(Output('config-msg', 'children'),
+                          [Input("submit-config", "n_clicks"), ],
+                          self.config_states
+                          )(self.submit_config)
+
+        tabs = dcc.Tabs(children=[])
+        tabs.children.append(graph_tab)
+        tabs.children.append(config_tab)
+
+        self.app.layout = html.Div([tabs])
         self.app.layout.style = {"font-family": "sans-serif"}
 
         self.server = ThreadedWSGIServer(dashboard_host, dashboard_port, self.app.server)
@@ -177,6 +248,43 @@ class Dashboard(AbstractConsumer, threading.Thread):
             self.signal_queue.append(signal)
         elif isinstance(signal, MatchedSignal):
             self.matched_queue.append(signal)
+
+    def submit_config(self, clicks, *form_args):
+        msg = html.Div(children=[])
+        args = Runner.parser.parse_args([])
+
+        if not clicks:
+            return msg
+
+        for dest, value in zip([state.component_id for state in self.config_states], form_args):
+            # find corresponding action
+            for action in Runner.parser._actions:
+                if action.dest == dest:
+                    # boolean values are returned as lists, check if id is set
+                    if isinstance(value, list):
+                        args.__dict__[dest] = (dest in value)
+                        continue
+
+                    # try to cast using type
+                    try:
+                        args.__dict__[dest] = action.type(value)
+                    except (ValueError, TypeError):
+                        # try to cast using literal_eval
+                        try:
+                            args.__dict__[dest] = literal_eval(value)
+                        except Exception:
+                            msg.children.append(html.P(f"Error: {dest} invalid."))
+                            return msg
+
+        # write config to actual location
+        try:
+            Runner.parser.write_config(args, open(self.running_args.config, "w"))
+        except Exception as e:
+            msg.children.append(html.P(str(e)))
+            return msg
+
+        msg.children.append(html.P(f"Config successfully written to '{args.config}'."))
+        return msg
 
     def update_interval(self, interval):
         return interval * 1000

@@ -150,7 +150,7 @@ class Runner:
         # add vizualization consumer
         if self.args.dashboard:
             from radiotracking.present import Dashboard
-            self.dashboard = Dashboard(**self.args.__dict__)
+            self.dashboard = Dashboard(self.args, **self.args.__dict__)
             self.connector.consumers.append(self.dashboard)
         else:
             self.dashboard = None
