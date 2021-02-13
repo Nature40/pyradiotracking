@@ -33,10 +33,10 @@ class Runner:
 
     # sdr / sampling options
     sdr_options = parser.add_argument_group("rtl-sdr")
-    sdr_options.add_argument("-d", "--device", help="device indexes or names, default: 0", default=[0], nargs="*")
-    sdr_options.add_argument("-c", "--calibration", help="device calibration gain (dB), default: 0", default=[], nargs="*", type=float)
-    sdr_options.add_argument("-f", "--center-freq", help="center frequency to tune to (Hz), default: 150100001", default=150100001, type=int)
-    sdr_options.add_argument("-s", "--sample-rate", help="sample rate (Hz), default: 300000", default=300000, type=int)
+    sdr_options.add_argument("-d", "--device", help="device indexes or names", default=[0], nargs="*")
+    sdr_options.add_argument("-c", "--calibration", help="device calibration gain (dB)", default=[], nargs="*", type=float)
+    sdr_options.add_argument("-f", "--center-freq", help="center frequency to tune to (Hz)", default=150100001, type=int)
+    sdr_options.add_argument("-s", "--sample-rate", help="sample rate (Hz)", default=300000, type=int)
     sdr_options.add_argument("-b", "--sdr-callback-length", help="number of samples to read per batch", default=None, type=int)
     sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6", default="49.6", type=float)
     sdr_options.add_argument("--sdr-max-restart", help="maximal restart count per SDR device", default=3, type=int)
