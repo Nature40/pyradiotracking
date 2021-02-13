@@ -14,12 +14,16 @@ from radiotracking import AbstractSignal, MatchedSignal, Signal
 from radiotracking.config import ArgConfParser
 from radiotracking.consume import AbstractConsumer
 
-SDR_COLORS: DefaultDict[str, str] = collections.defaultdict(lambda: "grey")
+SDR_COLORS: DefaultDict[Union[str, int], str] = collections.defaultdict(lambda: "grey")
 SDR_COLORS.update({
     "0": "blue",
     "1": "orange",
     "2": "red",
     "3": "green",
+    0: "blue",
+    1: "orange",
+    2: "red",
+    3: "green",
     "green": "green",
     "red": "red",
     "yellow": "yellow",
