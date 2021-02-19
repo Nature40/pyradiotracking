@@ -68,7 +68,9 @@ class Dashboard(AbstractConsumer, threading.Thread):
         frequency_min = center_freq - sample_rate / 2
         frequency_max = center_freq + sample_rate / 2
 
-        self.app = dash.Dash(__name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}])
+        self.app = dash.Dash(__name__,
+                             url_base_pathname='/radiotracking/',
+                             meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}])
 
         graph_columns = html.Div(children=[], style={"columns": "2 359px"})
         graph_columns.children.append(
