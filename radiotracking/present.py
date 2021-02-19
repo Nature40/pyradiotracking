@@ -1,5 +1,7 @@
 import argparse
 import collections
+import os
+import signal
 import threading
 from ast import literal_eval
 from typing import DefaultDict, Deque, Dict, Iterable, List, Tuple, Union
@@ -235,11 +237,16 @@ class Dashboard(AbstractConsumer, threading.Thread):
                 self.config_states.append(State(action.dest, "value"))
 
         config_columns.children.append(html.Button('Save', id="submit-config"))
-        config_columns.children.append(html.Div(id="config-msg"))
         self.app.callback(Output('config-msg', 'children'),
                           [Input("submit-config", "n_clicks"), ],
                           self.config_states
                           )(self.submit_config)
+
+        config_columns.children.append(html.Button('Restart', id="submit-restart"))
+        self.app.callback(Output('submit-restart', 'children'),
+                          [Input("submit-restart", "n_clicks"), ]
+                          )(self.submit_restart)
+        config_columns.children.append(html.Div(id="config-msg"))
 
         tabs = dcc.Tabs(children=[])
         tabs.children.append(graph_tab)
@@ -342,6 +349,14 @@ class Dashboard(AbstractConsumer, threading.Thread):
 
         msg.children.append(html.P(f"Config successfully written to '{args.config}'."))
         return msg
+
+    def submit_restart(self, clicks):
+        if not clicks:
+            return "Restart"
+
+        os.kill(os.getpid(), signal.SIGTERM)
+
+        return "Restarting..."
 
     def update_interval(self, interval):
         return interval * 1000
