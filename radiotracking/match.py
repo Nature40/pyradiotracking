@@ -1,6 +1,5 @@
 import datetime
 import logging
-import math
 import multiprocessing
 from typing import List
 
@@ -8,56 +7,6 @@ from radiotracking import AbstractSignal, MatchedSignal, Signal
 from radiotracking.consume import AbstractConsumer
 
 logger = logging.getLogger(__name__)
-
-
-class CalibrationConsumer(AbstractConsumer):
-    def __init__(self,
-                 device: List[str],
-                 calibration: List[float],
-                 calibration_freq: float,
-                 matching_bandwidth_hz: float,
-                 **kwargs):
-
-        self.devices = device
-        self.maxima: List[float] = [-math.inf for d in device]
-        self.calibration_in = calibration
-        self.calibration_freq = calibration_freq
-        self.bandwidth_hz = matching_bandwidth_hz
-
-    def add(self, sig: AbstractSignal):
-        # discard if non-signal is added
-        if not isinstance(sig, Signal):
-            return
-
-        if not self.calibration_freq:
-            return
-
-        # discard, if freq mismatch
-        if sig.frequency - self.bandwidth_hz / 2 > self.calibration_freq:
-            logger.debug(f"{sig.frequency - self.bandwidth_hz / 2} > {self.calibration_freq}")
-            return
-        if sig.frequency + self.bandwidth_hz / 2 < self.calibration_freq:
-            logger.debug(f"{sig.frequency + self.bandwidth_hz / 2} < {self.calibration_freq}")
-            return
-
-        i = self.devices.index(sig.device)
-
-        if self.maxima[i] > sig.avg:
-            return
-
-        # setting new maximum
-        self.maxima[i] = sig.avg
-
-        logger.info(f"Found new calibration values \"{self.calibration_string}\"")
-
-    @property
-    def calibration(self) -> List[float]:
-        maxima_uncalibrated = [m + c for m, c in zip(self.maxima, self.calibration_in)]
-        return [m - max(maxima_uncalibrated) for m in maxima_uncalibrated]
-
-    @ property
-    def calibration_string(self) -> str:
-        return " ".join([f"{c: .2f}" for c in self.calibration])
 
 
 class SignalMatcher(AbstractConsumer):

@@ -2,13 +2,14 @@ import argparse
 import collections
 import threading
 from ast import literal_eval
-from typing import DefaultDict, Deque, Iterable, List, Tuple, Union
+from typing import DefaultDict, Deque, Dict, Iterable, List, Tuple, Union
 
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import plotly.graph_objs as go
 from dash.dependencies import Input, Output, State
+from dash_html_components.H2 import H2
 from werkzeug.serving import ThreadedWSGIServer
 
 from radiotracking import AbstractSignal, MatchedSignal, Signal
@@ -21,10 +22,6 @@ SDR_COLORS.update({
     "1": "orange",
     "2": "red",
     "3": "green",
-    0: "blue",
-    1: "orange",
-    2: "red",
-    3: "green",
     "green": "green",
     "red": "red",
     "yellow": "yellow",
@@ -47,6 +44,8 @@ def group(sigs: Iterable[Signal], by: str) -> List[Tuple[str, List[Signal]]]:
 class Dashboard(AbstractConsumer, threading.Thread):
     def __init__(self,
                  running_args: argparse.Namespace,
+                 device: List[str],
+                 calibration: List[float],
                  dashboard_host: str,
                  dashboard_port: int,
                  dashboard_signals: int,
@@ -61,6 +60,8 @@ class Dashboard(AbstractConsumer, threading.Thread):
                  **kwargs,
                  ):
         threading.Thread.__init__(self)
+        self.device = device
+        self.calibration = calibration
         self.signal_queue: Deque[Signal] = collections.deque(maxlen=dashboard_signals)
         self.matched_queue: Deque[MatchedSignal] = collections.deque(maxlen=dashboard_signals)
 
@@ -73,6 +74,56 @@ class Dashboard(AbstractConsumer, threading.Thread):
                              meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}])
 
         graph_columns = html.Div(children=[], style={"columns": "2 359px"})
+        graph_columns.children.append(dcc.Graph(id="signal-noise", style={"break-inside": "avoid-column"}))
+        self.app.callback(Output("signal-noise", "figure"), [
+            Input("update", "n_intervals"),
+            Input("power-slider", "value"),
+            Input("snr-slider", "value"),
+            Input("frequency-slider", "value"),
+            Input("duration-slider", "value"),
+        ])(self.update_signal_noise)
+
+        graph_columns.children.append(dcc.Graph(id="frequency-histogram", style={"break-inside": "avoid-column"}))
+        self.app.callback(Output("frequency-histogram", "figure"), [
+            Input("update", "n_intervals"),
+            Input("power-slider", "value"),
+            Input("snr-slider", "value"),
+            Input("frequency-slider", "value"),
+            Input("duration-slider", "value"),
+        ])(self.update_frequency_histogram)
+
+        graph_columns.children.append(dcc.Graph(id="signal-match", style={"break-inside": "avoid-column"}))
+        self.app.callback(Output("signal-match", "figure"), [
+            Input("update", "n_intervals"),
+        ])(self.update_signal_match)
+
+        graph_columns.children.append(dcc.Graph(id="signal-variance", style={"break-inside": "avoid-column"}))
+        self.app.callback(Output("signal-variance", "figure"), [
+            Input("update", "n_intervals"),
+            Input("power-slider", "value"),
+            Input("snr-slider", "value"),
+            Input("frequency-slider", "value"),
+            Input("duration-slider", "value"),
+        ])(self.update_signal_variance)
+
+        graph_tab = dcc.Tab(label="Graphs", children=[])
+        graph_tab.children.append(dcc.Interval(id="update", interval=1000))
+        self.app.callback(Output("update", "interval"), [Input("interval-slider", "value")])(self.update_interval)
+
+        graph_tab.children.append(html.Div([dcc.Graph(id="signal-time"), ]))
+        self.app.callback(Output("signal-time", "figure"), [
+            Input("update", "n_intervals"),
+            Input("power-slider", "value"),
+            Input("snr-slider", "value"),
+            Input("frequency-slider", "value"),
+            Input("duration-slider", "value"),
+        ])(self.update_signal_time)
+
+        graph_columns.children.append(html.Div(children=[], id="calibration_output"))
+        self.app.callback(Output("calibration_output", "children"), [
+            Input("update", "n_intervals"),
+        ])(self.update_calibration)
+
         graph_columns.children.append(
             html.Div(id="settings", style={"break-inside": "avoid-column"}, children=[
                 html.H2("Vizualization Filters"),
@@ -124,51 +175,6 @@ class Dashboard(AbstractConsumer, threading.Thread):
                            10: "10 s", },
                 ),
             ]))
-        graph_columns.children.append(dcc.Graph(id="signal-noise", style={"break-inside": "avoid-column"}))
-        self.app.callback(Output("signal-noise", "figure"), [
-            Input("update", "n_intervals"),
-            Input("power-slider", "value"),
-            Input("snr-slider", "value"),
-            Input("frequency-slider", "value"),
-            Input("duration-slider", "value"),
-        ])(self.update_signal_noise)
-
-        graph_columns.children.append(dcc.Graph(id="frequency-histogram", style={"break-inside": "avoid-column"}))
-        self.app.callback(Output("frequency-histogram", "figure"), [
-            Input("update", "n_intervals"),
-            Input("power-slider", "value"),
-            Input("snr-slider", "value"),
-            Input("frequency-slider", "value"),
-            Input("duration-slider", "value"),
-        ])(self.update_frequency_histogram)
-
-        graph_columns.children.append(dcc.Graph(id="signal-match", style={"break-inside": "avoid-column"}))
-        self.app.callback(Output("signal-match", "figure"), [
-            Input("update", "n_intervals"),
-        ])(self.update_signal_match)
-
-        graph_columns.children.append(dcc.Graph(id="signal-variance", style={"break-inside": "avoid-column"}))
-        self.app.callback(Output("signal-variance", "figure"), [
-            Input("update", "n_intervals"),
-            Input("power-slider", "value"),
-            Input("snr-slider", "value"),
-            Input("frequency-slider", "value"),
-            Input("duration-slider", "value"),
-        ])(self.update_signal_variance)
-
-        graph_tab = dcc.Tab(label="Graphs", children=[])
-        graph_tab.children.append(dcc.Interval(id="update", interval=1000))
-        self.app.callback(Output("update", "interval"), [Input("interval-slider", "value")])(self.update_interval)
-
-        graph_tab.children.append(html.Div([dcc.Graph(id="signal-time"), ]))
-        self.app.callback(Output("signal-time", "figure"), [
-            Input("update", "n_intervals"),
-            Input("power-slider", "value"),
-            Input("snr-slider", "value"),
-            Input("frequency-slider", "value"),
-            Input("duration-slider", "value"),
-        ])(self.update_signal_time)
-
         graph_tab.children.append(graph_columns)
 
         config_columns = html.Div(children=[], style={"columns": "2 359px", "padding": "20pt"})
@@ -245,11 +251,61 @@ class Dashboard(AbstractConsumer, threading.Thread):
 
         self.server = ThreadedWSGIServer(dashboard_host, dashboard_port, self.app.server)
 
+        self.calibrations: Dict[float, Dict[str, float]] = {}
+
     def add(self, signal: AbstractSignal):
         if isinstance(signal, Signal):
             self.signal_queue.append(signal)
+
+            # create / update calibration dict calibrations[freq][device] = max(sig.avg)
+            if signal.frequency not in self.calibrations:
+                self.calibrations[signal.frequency] = {}
+
+            # if freq has no avg for device, set it, else update with max of old and new
+            if signal.device not in self.calibrations[signal.frequency]:
+                self.calibrations[signal.frequency][signal.device] = signal.avg
+            else:
+                self.calibrations[signal.frequency][signal.device] = max(self.calibrations[signal.frequency][signal.device], signal.avg)
+
         elif isinstance(signal, MatchedSignal):
             self.matched_queue.append(signal)
+
+    def update_calibration(self, n):
+        header = html.Tr(children=[
+            html.Th("Frequency (MHz)"),
+            html.Th("Max (dBW)"),
+        ], style={"text-align": "left"})
+
+        settings_row = html.Tr(children=[
+            html.Td("[current settings]"),
+            html.Td(""),
+        ])
+
+        for device, calibration in zip(self.device, self.calibration):
+            header.children.append(html.Th(f"SDR {device} (dB)"))
+            settings_row.children.append(html.Td(f"{calibration:.2f}"))
+
+        table = html.Table(children=[header, settings_row], style={"width": "100%", "text-align": "left"})
+
+        for freq, avgs in self.calibrations.items():
+            ordered_avgs = [avgs[d] + old
+                            if d in avgs else float("-inf")
+                            for d, old in zip(self.device, self.calibration)]
+            freq_max = max(ordered_avgs)
+
+            row = html.Tr(children=[
+                html.Td(f"{freq/1000/1000:.3f}"),
+                html.Td(f"{freq_max:.2f}")
+            ])
+            for avg in ordered_avgs:
+                row.children.append(html.Td(f"{avg - freq_max:.2f}"))
+
+            table.children.append(row)
+
+        return html.Div([
+            html.H2("Calibration Table"),
+            table,
+        ])
 
     def submit_config(self, clicks, *form_args):
         msg = html.Div(children=[])

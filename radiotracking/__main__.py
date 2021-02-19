@@ -13,7 +13,7 @@ from typing import List
 from radiotracking.analyze import SignalAnalyzer
 from radiotracking.config import ArgConfParser
 from radiotracking.consume import ProcessConnector
-from radiotracking.match import CalibrationConsumer, SignalMatcher
+from radiotracking.match import SignalMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,6 @@ class Runner:
     # generic options
     parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
     parser.add_argument("--config", help="configuration file", default="etc/radiotracking.ini", type=str)
-    parser.add_argument("--calibration-freq", help="frequency to use for calibration (Hz)", default=None, type=float)
 
     # sdr / sampling options
     sdr_options = parser.add_argument_group("rtl-sdr")
@@ -140,13 +139,6 @@ class Runner:
         self.matcher = SignalMatcher(signal_queue=self.connector.q, **self.args.__dict__)
         self.connector.consumers.append(self.matcher)
 
-        # add calibration consumer
-        if self.args.calibration_freq:
-            self.calibrator = CalibrationConsumer(**self.args.__dict__)
-            self.connector.consumers.append(self.calibrator)
-        else:
-            self.calibrator = None
-
         # add vizualization consumer
         if self.args.dashboard:
             from radiotracking.present import Dashboard
@@ -190,9 +182,6 @@ class Runner:
             start = datetime.datetime.now()
             while datetime.datetime.now() < start + datetime.timedelta(seconds=1):
                 self.connector.step(datetime.datetime.now() - start)
-
-        if self.calibrator:
-            logger.warning(f"Calibration results: {self.calibrator.calibration_string}")
 
         exit(0)
 
