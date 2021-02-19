@@ -9,7 +9,6 @@ import dash_core_components as dcc
 import dash_html_components as html
 import plotly.graph_objs as go
 from dash.dependencies import Input, Output, State
-from dash_html_components.H2 import H2
 from werkzeug.serving import ThreadedWSGIServer
 
 from radiotracking import AbstractSignal, MatchedSignal, Signal
