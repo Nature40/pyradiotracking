@@ -54,8 +54,9 @@ class MQTTConsumer(AbstractConsumer):
         self,
         mqtt_host: str,
         mqtt_port: int,
+        prefix: str = "/radiotracking",
     ):
-        self.prefix = f"{socket.gethostname()}/radiotracking"
+        self.prefix = prefix
         self.client = paho.mqtt.client.Client()
         self.client.connect(mqtt_host, mqtt_port)
 
@@ -95,7 +96,11 @@ class MQTTConsumer(AbstractConsumer):
 
 
 class CSVConsumer(AbstractConsumer):
-    def __init__(self, out, cls: Type[AbstractSignal], header: List[str] = None):
+    def __init__(self,
+                 out,
+                 cls: Type[AbstractSignal],
+                 header: List[str] = None,
+                 ):
         self.out = out
         self.cls = cls
 
@@ -116,6 +121,8 @@ class CSVConsumer(AbstractConsumer):
 
 class ProcessConnector:
     def __init__(self,
+                 area: str,
+                 station: str,
                  device: List[str],
                  sig_stdout: bool,
                  match_stdout: bool,
@@ -141,22 +148,23 @@ class ProcessConnector:
 
         # add csv consumer
         if csv:
+            path = f"{path}/{socket.gethostname()}/radiotracking"
             # create output directory
             os.makedirs(path, exist_ok=True)
 
             # create consumer for signals
-            signal_csv_path = f"{path}/{ts:%Y-%m-%dT%H%M%S}.csv"
+            signal_csv_path = f"{path}/{area}_{station}_{ts:%Y-%m-%dT%H%M%S}.csv"
             signal_csv_consumer = CSVConsumer(open(signal_csv_path, "w"), cls=Signal, header=Signal.header)
             self.consumers.append(signal_csv_consumer)
 
             # create consumer for matched signals
-            matched_csv_path = f"{path}/{ts:%Y-%m-%dT%H%M%S}-matched.csv"
+            matched_csv_path = f"{path}/{area}_{station}_{ts:%Y-%m-%dT%H%M%S}-matched.csv"
             matched_csv_consumer = CSVConsumer(open(matched_csv_path, "w"), cls=MatchedSignal, header=MatchedSignal(device).header)
             self.consumers.append(matched_csv_consumer)
 
         # add mqtt consumer
         if mqtt:
-            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port)
+            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port, prefix=f"{area}_{station}/radiotracking/")
             self.consumers.append(mqtt_consumer)
 
     def step(self, timeout: datetime.timedelta):

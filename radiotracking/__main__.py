@@ -6,6 +6,7 @@ import logging
 import multiprocessing
 import os
 import signal
+import socket
 import subprocess
 from ast import literal_eval
 from typing import List
@@ -29,6 +30,8 @@ class Runner:
     # generic options
     parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
     parser.add_argument("--config", help="configuration file", default="etc/radiotracking.ini", type=str)
+    parser.add_argument("--area", help="area of observation, such as a specific forest", default="lab", type=str)
+    parser.add_argument("--station", help="name of the station in the area", default="test", type=str)
 
     # sdr / sampling options
     sdr_options = parser.add_argument_group("rtl-sdr")
@@ -61,7 +64,7 @@ class Runner:
     publish_options = parser.add_argument_group("publish")
     publish_options.add_argument("--sig-stdout", help="enable stdout signal publishing", action="store_true")
     publish_options.add_argument("--match-stdout", help="enable stdout matched signals publishing", action="store_true")
-    publish_options.add_argument("--path", help="file output path", default=f"./data/{os.uname()[1]}/radiotracking", type=str)
+    publish_options.add_argument("--path", help="file output path", default="data", type=str)
     publish_options.add_argument("--csv", help="enable csv data publishing", action="store_true")
     publish_options.add_argument("--export-config", help="export configuration", action="store_true")
     publish_options.add_argument("--mqtt", help="enable mqtt data publishing", action="store_true")
@@ -126,9 +129,11 @@ class Runner:
 
         # export configuration
         if self.args.export_config:
-            os.makedirs(self.args.path, exist_ok=True)
+            path = f"{self.args.path}/{socket.gethostname()}/radiotracking"
+            os.makedirs(path, exist_ok=True)
+
             ts = datetime.datetime.now()
-            config_export_path = f"{self.args.path}/{ts:%Y-%m-%dT%H%M%S}.ini"
+            config_export_path = f"{path}/{self.args.area}_{self.args.station}_{ts:%Y-%m-%dT%H%M%S}.ini"
             with open(config_export_path, "w") as config_export_file:
                 Runner.parser.write_config(self.args, config_export_file)
 
