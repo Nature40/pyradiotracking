@@ -1,5 +1,6 @@
 import argparse
 import collections
+import datetime
 import os
 import signal
 import threading
@@ -296,7 +297,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
 
         table = html.Table(children=[header, settings_row], style={"width": "100%", "text-align": "left"})
 
-        for freq, avgs in self.calibrations.items():
+        for freq, avgs in sorted(self.calibrations.items(), key=lambda item: max(item[1])):
             ordered_avgs = [avgs[d] + old
                             if d in avgs else float("-inf")
                             for d, old in zip(self.device, self.calibration)]
@@ -314,7 +315,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
         return html.Div([
             html.H2("Calibration Table"),
             table,
-        ])
+        ], style={"break-inside": "avoid-column"})
 
     def submit_config(self, clicks, *form_args):
         msg = html.Div(children=[])
@@ -389,7 +390,8 @@ class Dashboard(AbstractConsumer, threading.Thread):
         return {
             "data": traces,
             "layout": {
-                "xaxis": {"title": "Time"},
+                "xaxis": {"title": "Time",
+                          "range": (sigs[0].ts, datetime.datetime.utcnow())},
                 "yaxis": {"title": "Signal Power (dBW)",
                           "range": power},
                 "legend": {"title": "SDR Receiver"},
