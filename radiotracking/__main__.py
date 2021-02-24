@@ -85,7 +85,7 @@ class Runner:
         dargs = argparse.Namespace(**vars(self.args))
         dargs.device = device
         dargs.calibration_db = calibration_db
-        if sdr_max_restart:
+        if sdr_max_restart is not None:
             dargs.sdr_max_restart = sdr_max_restart
 
         analyzer = SignalAnalyzer(signal_queue=self.connector.q, **vars(dargs))
@@ -168,6 +168,7 @@ class Runner:
         # add vizualization consumer
         if self.args.dashboard:
             from radiotracking.present import Dashboard
+
             self.dashboard = Dashboard(self.args, **self.args.__dict__)
             self.connector.consumers.append(self.dashboard)
         else:
@@ -231,13 +232,11 @@ class Runner:
                 if dead.sdr_max_restart <= 0:
                     logger.critical(f"SDR {dead.device} is dead and beyond restart count, terminating.")
                     self.terminate(signal.SIGTERM)
+                    break
 
                 # remove old & start new analyzer
                 self.analyzers.remove(dead)
-                new_analyzer = self.create_and_start(
-                    dead.device,
-                    dead.calibration_db,
-                    dead.sdr_max_restart - 1)
+                new_analyzer = self.create_and_start(dead.device, dead.calibration_db, dead.sdr_max_restart - 1)
                 self.analyzers.append(new_analyzer)
 
             start = datetime.datetime.now()
