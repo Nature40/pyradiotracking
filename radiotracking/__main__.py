@@ -114,6 +114,21 @@ class Runner:
         [a.join() for a in self.analyzers]
         self.analyzers = []
 
+    def check_analyzers(self):
+        # iterate the analyzer copy to allow for altering (restarting) analyzers
+        for analyzer in self.analyzers.copy():
+            if analyzer.is_alive():
+                continue
+
+            if analyzer.sdr_max_restart <= 0:
+                logger.critical(f"SDR {analyzer.device} is dead and beyond restart count, terminating.")
+                self.terminate(signal.SIGTERM)
+                break
+
+            new_analyzer = self.create_and_start(analyzer.device, analyzer.calibration_db, analyzer.sdr_max_restart - 1)
+            self.analyzers.remove(analyzer)
+            self.analyzers.append(new_analyzer)
+
     def terminate(self, sig):
         logging.warning(f"Caught {signal.Signals(sig).name}, terminating {len(self.analyzers)} analyzers.")
         self.running = False
@@ -224,26 +239,18 @@ class Runner:
         if not self.schedule:
             self.start_analyzers()
 
+        next_check = datetime.datetime.now()
         while self.running:
-            # check if any of the analyzers have died
-            dead_analyzers = [a for a in self.analyzers if not a.is_alive()]
-            for dead in dead_analyzers:
-                # terminate execution if the restarts are depleted
-                if dead.sdr_max_restart <= 0:
-                    logger.critical(f"SDR {dead.device} is dead and beyond restart count, terminating.")
-                    self.terminate(signal.SIGTERM)
-                    break
+            # check if everything is working
+            if next_check < datetime.datetime.now():
+                self.check_analyzers()
+                next_check += datetime.timedelta(seconds=1)
 
-                # remove old & start new analyzer
-                self.analyzers.remove(dead)
-                new_analyzer = self.create_and_start(dead.device, dead.calibration_db, dead.sdr_max_restart - 1)
-                self.analyzers.append(new_analyzer)
-
-            start = datetime.datetime.now()
-            while datetime.datetime.now() < start + datetime.timedelta(seconds=1):
-                self.connector.step(datetime.datetime.now() - start)
-
+            # run scheduled functions (if present)
             schedule.run_pending()
+
+            # do a connector step with remaining time (check for queued signals)
+            self.connector.step(next_check - datetime.datetime.now())
 
         exit(0)
 
