@@ -4,3 +4,4 @@ numpy
 paho-mqtt
 cbor2
 pytz
+schedule

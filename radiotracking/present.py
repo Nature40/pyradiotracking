@@ -223,7 +223,10 @@ class Dashboard(AbstractConsumer, threading.Thread):
                         group_div.children[-1].children[-1].type = "number"
                 elif action.type == str:
                     group_div.children[-1].children[-1].type = "text"
-                    group_div.children[-1].children[-1].value = value
+                    if isinstance(value, list):
+                        group_div.children[-1].children[-1].value = repr(value)
+                    else:
+                        group_div.children[-1].children[-1].value = value
                 elif isinstance(action, argparse._StoreTrueAction):
                     group_div.children[-1].children[-1] = dcc.Checklist(
                         id=action.dest,
@@ -329,16 +332,13 @@ class Dashboard(AbstractConsumer, threading.Thread):
                         args.__dict__[dest] = (dest in value)
                         continue
 
-                    # try to cast using type
                     try:
-                        args.__dict__[dest] = action.type(value)
-                    except (ValueError, TypeError):
-                        # try to cast using literal_eval
-                        try:
-                            args.__dict__[dest] = literal_eval(value)
-                        except Exception:
-                            msg.children.append(html.P(f"Error: {dest} invalid."))
-                            return msg
+                        args.__dict__[dest] = literal_eval(value)
+                    except ValueError:
+                        args.__dict__[dest] = value
+                    except Exception as e:
+                        msg.children.append(html.P(f"Error: value for '{dest}' invalid ({repr(e)})."))
+                        return msg
 
         # write config to actual location
         try:

@@ -11,6 +11,8 @@ import subprocess
 from ast import literal_eval
 from typing import List
 
+import schedule
+
 from radiotracking.analyze import SignalAnalyzer
 from radiotracking.config import ArgConfParser
 from radiotracking.consume import ProcessConnector
@@ -32,10 +34,11 @@ class Runner:
     parser.add_argument("--config", help="configuration file", default="etc/radiotracking.ini", type=str)
     parser.add_argument("--area", help="area of observation, such as a specific forest", default="lab", type=str)
     parser.add_argument("--station", help="name of the station in the area", default="test", type=str)
+    parser.add_argument("--schedule", help="specify a schedule of operation, e.g. 18:00-18:59:59", type=str, default=[], nargs="*")
 
     # sdr / sampling options
     sdr_options = parser.add_argument_group("rtl-sdr")
-    sdr_options.add_argument("-d", "--device", help="device indexes or names", default=[0], nargs="*")
+    sdr_options.add_argument("-d", "--device", help="device indexes or names", default=["0"], nargs="*", type=str)
     sdr_options.add_argument("-c", "--calibration", help="device calibration gain (dB)", default=[], nargs="*", type=float)
     sdr_options.add_argument("-f", "--center-freq", help="center frequency to tune to (Hz)", default=150150000, type=int)
     sdr_options.add_argument("-s", "--sample-rate", help="sample rate (Hz)", default=300000, type=int)
@@ -78,9 +81,14 @@ class Runner:
     dashboard_options.add_argument("--dashboard-port", help="port to bind the dashboard to", default=8050, type=int)
     dashboard_options.add_argument("--dashboard-signals", help="number of signals to present", default=100, type=int)
 
-    @ staticmethod
-    def create_and_start(dargs: argparse.Namespace, queue: multiprocessing.Queue) -> SignalAnalyzer:
-        analyzer = SignalAnalyzer(signal_queue=queue, **vars(dargs))
+    def create_and_start(self, device: str, calibration_db: float, sdr_max_restart: int = None) -> SignalAnalyzer:
+        dargs = argparse.Namespace(**vars(self.args))
+        dargs.device = device
+        dargs.calibration_db = calibration_db
+        if sdr_max_restart:
+            dargs.sdr_max_restart = sdr_max_restart
+
+        analyzer = SignalAnalyzer(signal_queue=self.connector.q, **vars(dargs))
         analyzer.start()
 
         try:
@@ -92,6 +100,19 @@ class Runner:
             logger.warning(f"SDR {analyzer.device} CPU affinity: failed to configure")
 
         return analyzer
+
+    def start_analyzers(self):
+        if self.analyzers:
+            logger.critical("")
+        logger.info("Starting all analyzers")
+        for device, calibration_db in zip(self.args.device, self.args.calibration):
+            self.analyzers.append(self.create_and_start(device, calibration_db))
+
+    def stop_analyzers(self):
+        logger.info("Stopping all analyzers")
+        [a.kill() for a in self.analyzers]
+        [a.join() for a in self.analyzers]
+        self.analyzers = []
 
     def terminate(self, sig):
         logging.warning(f"Caught {signal.Signals(sig).name}, terminating {len(self.analyzers)} analyzers.")
@@ -152,21 +173,55 @@ class Runner:
         else:
             self.dashboard = None
 
+        self.schedule = []
+
+        for entry in self.args.schedule:
+            start, stop = entry.split("-")
+
+            try:
+                start_s = schedule.every().day.at(start)
+                stop_s = schedule.every().day.at(stop)
+
+                if start_s.at_time > stop_s.at_time:
+                    raise schedule.ScheduleError("Schedule start is after stop")
+
+                start_s.do(self.start_analyzers)
+                stop_s.do(self.stop_analyzers)
+
+                # check if there is an overlap with another schedule
+                for other_start, other_stop in self.schedule:
+                    # if they start before us and don't finish before us
+                    if other_start < start_s.at_time and not other_stop < start_s.at_time:
+                        raise schedule.ScheduleError(f"Scheduling overlaps with {other_start}-{other_stop}")
+
+                    # if we start before them and do not finish before them
+                    if start_s.at_time < other_start:
+                        logger.debug("we start before them")
+                        if not stop_s.at_time < other_start:
+                            logger.debug("we don't finish before them")
+                            raise schedule.ScheduleError(f"Scheduling overlaps with {other_start}-{other_stop}")
+
+                self.schedule.append((start_s.at_time, stop_s.at_time))
+                logger.debug(f"Added {start_s.at_time}-{stop_s.at_time} to schedule")
+
+            except schedule.ScheduleError as e:
+                logger.error(f"{e}, please check configuration '{entry}'.")
+                exit(1)
+
     def main(self):
-        # prepare device / calibration list
-        devices = dict(zip(self.args.device, self.args.calibration))
-        dargs = argparse.Namespace(**vars(self.args))
-
-        # create & start analyzers
-        for device, calibration_db in devices.items():
-            dargs.device = device
-            dargs.calibration_db = calibration_db
-            self.analyzers.append(Runner.create_and_start(dargs, self.connector.q))
-
-        logger.info("All analyzers started.")
-
         if self.dashboard:
             self.dashboard.start()
+
+        # evaluate schedulings, and start if current time is in interval
+        ts = datetime.datetime.now()
+        for start_s, stop_s in self.schedule:
+            if start_s < ts.time() and ts.time() < stop_s:
+                logger.info(f"starting analyzers now (schedule {start_s}-{stop_s})")
+                self.start_analyzers()
+
+        # if no schedule is defined, run permanently
+        if not self.schedule:
+            self.start_analyzers()
 
         while self.running:
             # check if any of the analyzers have died
@@ -179,14 +234,17 @@ class Runner:
 
                 # remove old & start new analyzer
                 self.analyzers.remove(dead)
-                dargs.device = dead.device
-                dargs.calibration_db = dead.calibration_db
-                dargs.sdr_max_restart = dead.sdr_max_restart - 1
-                self.analyzers.append(Runner.create_and_start(dargs, self.connector.q))
+                new_analyzer = self.create_and_start(
+                    dead.device,
+                    dead.calibration_db,
+                    dead.sdr_max_restart - 1)
+                self.analyzers.append(new_analyzer)
 
             start = datetime.datetime.now()
             while datetime.datetime.now() < start + datetime.timedelta(seconds=1):
                 self.connector.step(datetime.datetime.now() - start)
+
+            schedule.run_pending()
 
         exit(0)
 
