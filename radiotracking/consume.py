@@ -164,7 +164,7 @@ class ProcessConnector:
 
         # add mqtt consumer
         if mqtt:
-            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port, prefix=f"{area}_{station}/radiotracking/")
+            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port, prefix=f"{area}_{station}/radiotracking")
             self.consumers.append(mqtt_consumer)
 
     def step(self, timeout: datetime.timedelta):
