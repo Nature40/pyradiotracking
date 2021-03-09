@@ -5,6 +5,7 @@ import datetime
 import logging
 import multiprocessing
 import os
+import platform
 import signal
 import socket
 import subprocess
@@ -32,8 +33,7 @@ class Runner:
     # generic options
     parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
     parser.add_argument("--config", help="configuration file", default="etc/radiotracking.ini", type=str)
-    parser.add_argument("--area", help="area of observation, such as a specific forest", default="lab", type=str)
-    parser.add_argument("--station", help="name of the station in the area", default="test", type=str)
+    parser.add_argument("--station", help="name of the station", default=platform.node(), type=str)
     parser.add_argument("--schedule", help="specify a schedule of operation, e.g. 18:00-18:59:59", type=str, default=[], nargs="*")
 
     # sdr / sampling options
@@ -169,7 +169,7 @@ class Runner:
             os.makedirs(path, exist_ok=True)
 
             ts = datetime.datetime.now()
-            config_export_path = f"{path}/{self.args.area}_{self.args.station}_{ts:%Y-%m-%dT%H%M%S}.ini"
+            config_export_path = f"{path}/{self.args.station}_{ts:%Y-%m-%dT%H%M%S}.ini"
             with open(config_export_path, "w") as config_export_file:
                 Runner.parser.write_config(self.args, config_export_file)
 

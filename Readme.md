@@ -7,12 +7,13 @@ Detect signals of wildlife tracking systems with RTL SDR devices.
 
 ```bash
 $ python3 -m radiotracking -h
-usage: radiotracking [-h] [-v] [--config CONFIG] [--area AREA] [--station STATION] [--schedule [SCHEDULE [SCHEDULE ...]]] [-d [DEVICE [DEVICE ...]]]
-                     [-c [CALIBRATION [CALIBRATION ...]]] [-f CENTER_FREQ] [-s SAMPLE_RATE] [-b SDR_CALLBACK_LENGTH] [-g GAIN] [--sdr-max-restart SDR_MAX_RESTART]
-                     [--sdr-timeout-s SDR_TIMEOUT_S] [-n FFT_NPERSEG] [-w FFT_WINDOW] [-t SIGNAL_THRESHOLD_DBW] [-r SNR_THRESHOLD_DB] [-l SIGNAL_MIN_DURATION_MS]
-                     [-u SIGNAL_MAX_DURATION_MS] [--matching-timeout-s MATCHING_TIMEOUT_S] [-mt MATCHING_TIME_DIFF_S] [-mb MATCHING_BANDWIDTH_HZ]
-                     [-md MATCHING_DURATION_DIFF_MS] [--sig-stdout] [--match-stdout] [--path PATH] [--csv] [--export-config] [--mqtt] [--mqtt-host MQTT_HOST]
-                     [--mqtt-port MQTT_PORT] [--dashboard] [--dashboard-host DASHBOARD_HOST] [--dashboard-port DASHBOARD_PORT] [--dashboard-signals DASHBOARD_SIGNALS]
+usage: radiotracking [-h] [-v] [--config CONFIG] [--station STATION] [--schedule [SCHEDULE [SCHEDULE ...]]] [-d [DEVICE [DEVICE ...]]]
+                     [-c [CALIBRATION [CALIBRATION ...]]] [-f CENTER_FREQ] [-s SAMPLE_RATE] [-b SDR_CALLBACK_LENGTH] [-g GAIN]
+                     [--sdr-max-restart SDR_MAX_RESTART] [--sdr-timeout-s SDR_TIMEOUT_S] [-n FFT_NPERSEG] [-w FFT_WINDOW] [-t SIGNAL_THRESHOLD_DBW]
+                     [-r SNR_THRESHOLD_DB] [-l SIGNAL_MIN_DURATION_MS] [-u SIGNAL_MAX_DURATION_MS] [--matching-timeout-s MATCHING_TIMEOUT_S]
+                     [-mt MATCHING_TIME_DIFF_S] [-mb MATCHING_BANDWIDTH_HZ] [-md MATCHING_DURATION_DIFF_MS] [--sig-stdout] [--match-stdout]
+                     [--path PATH] [--csv] [--export-config] [--mqtt] [--mqtt-host MQTT_HOST] [--mqtt-port MQTT_PORT] [--dashboard]
+                     [--dashboard-host DASHBOARD_HOST] [--dashboard-port DASHBOARD_PORT] [--dashboard-signals DASHBOARD_SIGNALS]
 
 Detect signals of wildlife tracking systems with RTL SDR devices
 
@@ -20,8 +21,7 @@ optional arguments:
   -h, --help            show this help message and exit
   -v, --verbose         increase output verbosity (default: 0)
   --config CONFIG       configuration file (default: etc/radiotracking.ini)
-  --area AREA           area of observation, such as a specific forest (default: lab)
-  --station STATION     name of the station in the area (default: test)
+  --station STATION     name of the station (default: test)
   --schedule [SCHEDULE [SCHEDULE ...]]
                         specify a schedule of operation, e.g. 18:00-18:59:59 (default: [])
 
