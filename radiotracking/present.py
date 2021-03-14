@@ -344,7 +344,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
 
                     try:
                         args.__dict__[dest] = literal_eval(value)
-                    except ValueError:
+                    except (ValueError, SyntaxError):
                         args.__dict__[dest] = value
                     except Exception as e:
                         msg.children.append(html.P(f"Error: value for '{dest}' invalid ({repr(e)})."))
