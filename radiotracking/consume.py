@@ -123,6 +123,7 @@ class ProcessConnector:
     def __init__(self,
                  station: str,
                  device: List[str],
+                 calibrate: bool,
                  sig_stdout: bool,
                  match_stdout: bool,
                  path: str,
@@ -152,17 +153,19 @@ class ProcessConnector:
             os.makedirs(path, exist_ok=True)
 
             # create consumer for signals
-            signal_csv_path = f"{path}/{station}_{ts:%Y-%m-%dT%H%M%S}.csv"
-            signal_csv_consumer = CSVConsumer(open(signal_csv_path, "w"), cls=Signal, header=Signal.header)
+            signal_csv_path = f"{path}/{station}_{ts:%Y-%m-%dT%H%M%S}"
+            signal_csv_path += "_calibration" if calibrate else ""
+            signal_csv_consumer = CSVConsumer(open(f"{signal_csv_path}.csv", "w"), cls=Signal, header=Signal.header)
             self.consumers.append(signal_csv_consumer)
 
             # create consumer for matched signals
-            matched_csv_path = f"{path}/{station}_{ts:%Y-%m-%dT%H%M%S}-matched.csv"
-            matched_csv_consumer = CSVConsumer(open(matched_csv_path, "w"), cls=MatchedSignal, header=MatchedSignal(device).header)
+            matched_csv_path = f"{path}/{station}_{ts:%Y-%m-%dT%H%M%S}-matched"
+            matched_csv_path += "_calibration" if calibrate else ""
+            matched_csv_consumer = CSVConsumer(open(f"{matched_csv_path}.csv", "w"), cls=MatchedSignal, header=MatchedSignal(device).header)
             self.consumers.append(matched_csv_consumer)
 
-        # add mqtt consumer
-        if mqtt:
+        # add mqtt consumer (only if not in calibration)
+        if mqtt and not calibrate:
             mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port, prefix=f"{station}/radiotracking")
             self.consumers.append(mqtt_consumer)
 

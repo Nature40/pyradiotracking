@@ -32,6 +32,7 @@ class Runner:
 
     # generic options
     parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
+    parser.add_argument("--calibrate", help="enable calibration mode", action="store_true")
     parser.add_argument("--config", help="configuration file", default="etc/radiotracking.ini", type=str)
     parser.add_argument("--station", help="name of the station", default=platform.node(), type=str)
     parser.add_argument("--schedule", help="specify a schedule of operation, e.g. 18:00-18:59:59", type=str, default=[], nargs="*")

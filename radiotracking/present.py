@@ -47,6 +47,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
     def __init__(self,
                  running_args: argparse.Namespace,
                  device: List[str],
+                 calibrate: bool,
                  calibration: List[float],
                  dashboard_host: str,
                  dashboard_port: int,
@@ -109,6 +110,14 @@ class Dashboard(AbstractConsumer, threading.Thread):
         ])(self.update_signal_variance)
 
         graph_tab = dcc.Tab(label="Graphs", children=[])
+        if calibrate:
+            graph_tab.children.append(html.H4("Running in calibration mode.",
+                                              style={"text-align": "center",
+                                                     "width": "100%",
+                                                     "background-color": "#ffcccb",
+                                                     "padding": "20px",
+                                                     }))
+
         graph_tab.children.append(dcc.Interval(id="update", interval=1000))
         self.app.callback(Output("update", "interval"), [Input("interval-slider", "value")])(self.update_interval)
 
