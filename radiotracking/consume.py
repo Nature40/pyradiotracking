@@ -56,12 +56,14 @@ class MQTTConsumer(AbstractConsumer):
         mqtt_host: str,
         mqtt_port: int,
         mqtt_qos: int,
+        mqtt_keepalive: int,
         prefix: str = "/radiotracking",
+        **kwargs,
     ):
         self.prefix = prefix
         self.mqtt_qos = mqtt_qos
         self.client = paho.mqtt.client.Client(f"{platform.node()}-radiotracking", clean_session=False)
-        self.client.connect(mqtt_host, mqtt_port)
+        self.client.connect(mqtt_host, mqtt_port, keepalive=mqtt_keepalive)
 
     def add(self, signal: AbstractSignal):
 
@@ -132,9 +134,6 @@ class ProcessConnector:
                  path: str,
                  csv: bool,
                  mqtt: bool,
-                 mqtt_host: str,
-                 mqtt_port: int,
-                 mqtt_qos: int,
                  **kwargs,
                  ):
         self.q: multiprocessing.Queue[AbstractSignal] = multiprocessing.Queue()
@@ -170,7 +169,7 @@ class ProcessConnector:
 
         # add mqtt consumer (only if not in calibration)
         if mqtt and not calibrate:
-            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port, mqtt_qos, prefix=f"{station}/radiotracking")
+            mqtt_consumer = MQTTConsumer(prefix=f"{station}/radiotracking", **kwargs)
             self.consumers.append(mqtt_consumer)
 
     def step(self, timeout: datetime.timedelta):
