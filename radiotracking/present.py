@@ -259,13 +259,11 @@ class Dashboard(AbstractConsumer, threading.Thread):
                           )(self.submit_config)
 
         config_columns.children.append(html.Button('Restart', id="submit-restart"))
-        self.app.callback(Output('config-msg', 'children'),
+        self.app.callback(Output('submit-restart', 'children'),
                           [Input("submit-restart", "n_clicks"), ]
                           )(self.submit_restart)
-        config_columns.children.append(html.H4("Running in calibration mode.", id="config-msg",
-                                               style={"text-align": "center",
-                                                      "padding": "10px",
-                                                      }))
+        config_columns.children.append(html.H4("", id="config-msg",
+                                               style={"text-align": "center", "padding": "10px"}))
 
         tabs = dcc.Tabs(children=[])
         tabs.children.append(graph_tab)
