@@ -240,7 +240,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
                 elif isinstance(action, argparse._StoreTrueAction):
                     group_div.children[-1].children[-1] = dcc.Checklist(
                         id=action.dest,
-                        options=[{"value": action.dest}, ],
+                        options=[{"value": action.dest, "disabled": action.dest in immutable_args}, ],
                         value=[action.dest] if value else [],
                     )
 
