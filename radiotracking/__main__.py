@@ -74,6 +74,7 @@ class Runner:
     publish_options.add_argument("--mqtt", help="enable mqtt data publishing", action="store_true")
     publish_options.add_argument("--mqtt-host", help="hostname of mqtt broker", default="localhost", type=str)
     publish_options.add_argument("--mqtt-port", help="port of mqtt broker", default=1883, type=int)
+    publish_options.add_argument("--mqtt-qos", help="mqtt quality of service level (0, 1, 2)", default=1, type=int)
 
     # dashboard options
     dashboard_options = parser.add_argument_group("dashboard")

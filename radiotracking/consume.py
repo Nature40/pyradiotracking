@@ -4,6 +4,7 @@ import json
 import logging
 import multiprocessing
 import os
+import platform
 import queue
 import socket
 import sys
@@ -54,10 +55,12 @@ class MQTTConsumer(AbstractConsumer):
         self,
         mqtt_host: str,
         mqtt_port: int,
+        mqtt_qos: int,
         prefix: str = "/radiotracking",
     ):
         self.prefix = prefix
-        self.client = paho.mqtt.client.Client()
+        self.mqtt_qos = mqtt_qos
+        self.client = paho.mqtt.client.Client(f"{platform.node()}-radiotracking", clean_session=False)
         self.client.connect(mqtt_host, mqtt_port)
 
     def add(self, signal: AbstractSignal):
@@ -75,13 +78,13 @@ class MQTTConsumer(AbstractConsumer):
             signal.as_dict,
             default=jsonify,
         )
-        self.client.publish(path + "/json", payload_json)
+        self.client.publish(path + "/json", payload_json, qos=self.mqtt_qos)
 
         # publish csv
         csv_io = StringIO()
         csv.writer(csv_io, dialect="excel", delimiter=";").writerow([csvify(v) for v in signal.as_list])
         payload_csv = csv_io.getvalue().splitlines()[0]
-        self.client.publish(path + "/csv", payload_csv)
+        self.client.publish(path + "/csv", payload_csv, qos=self.mqtt_qos)
 
         # publish cbor
         payload_cbor = cbor.dumps(
@@ -90,7 +93,7 @@ class MQTTConsumer(AbstractConsumer):
             datetime_as_timestamp=True,
             default=cborify,
         )
-        self.client.publish(path + "/cbor", payload_cbor)
+        self.client.publish(path + "/cbor", payload_cbor, qos=self.mqtt_qos)
 
         logger.debug(f"published via mqtt, json: {len(payload_json)}, csv: {len(payload_csv)}, cbor: {len(payload_cbor)}")
 
@@ -131,6 +134,7 @@ class ProcessConnector:
                  mqtt: bool,
                  mqtt_host: str,
                  mqtt_port: int,
+                 mqtt_qos: int,
                  **kwargs,
                  ):
         self.q: multiprocessing.Queue[AbstractSignal] = multiprocessing.Queue()
@@ -166,7 +170,7 @@ class ProcessConnector:
 
         # add mqtt consumer (only if not in calibration)
         if mqtt and not calibrate:
-            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port, prefix=f"{station}/radiotracking")
+            mqtt_consumer = MQTTConsumer(mqtt_host, mqtt_port, mqtt_qos, prefix=f"{station}/radiotracking")
             self.consumers.append(mqtt_consumer)
 
     def step(self, timeout: datetime.timedelta):
