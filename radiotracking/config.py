@@ -1,7 +1,8 @@
+import sys
 from argparse import ArgumentParser, Namespace
 from ast import literal_eval
 from configparser import ConfigParser
-from typing import List, Optional, Sequence, Text, TextIO, Tuple
+from typing import Iterable, List, Optional, Sequence, Text, TextIO, Tuple
 
 
 class ArgConfParser(ArgumentParser):
@@ -25,6 +26,19 @@ class ArgConfParser(ArgumentParser):
         namespace, unparsed = super().parse_known_args(args=args, namespace=namespace)
 
         return (namespace, unparsed)
+
+    def immutable_args(self, args: Optional[Sequence[Text]] = None) -> Iterable[str]:
+        if args is None:
+            # args default to the system args
+            args = sys.argv[1:]
+        else:
+            # make sure that args are mutable
+            args = list(args)
+
+        namespace = Namespace()
+        namespace, _ = super()._parse_known_args(arg_strings=args, namespace=namespace)
+
+        return namespace.__dict__.keys()
 
     def read_config(self, path):
         config = ConfigParser()

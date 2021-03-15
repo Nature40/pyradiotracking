@@ -46,6 +46,7 @@ def group(sigs: Iterable[Signal], by: str) -> List[Tuple[str, List[Signal]]]:
 class Dashboard(AbstractConsumer, threading.Thread):
     def __init__(self,
                  running_args: argparse.Namespace,
+                 immutable_args: Iterable[str],
                  device: List[str],
                  calibrate: bool,
                  calibration: List[float],
@@ -191,7 +192,6 @@ class Dashboard(AbstractConsumer, threading.Thread):
         config_columns = html.Div(children=[], style={"columns": "2 359px", "padding": "20pt"})
         config_tab = dcc.Tab(label="Configuration", children=[config_columns])
         config_columns.children.append(html.Div("Reconfiguration requires restarting of pyradiotracking. Please keep in mind, that a broken configuration might lead to failing starts."))
-        config_columns.children.append(html.Div("Parameters configured as command line arguments are loaded after the configuration file and overwrite those configured here."))
 
         self.running_args = running_args
         self.config_states: List[State] = []
@@ -244,7 +244,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
                         value=[action.dest] if value else [],
                     )
 
-                if action.dest == "config":
+                if action.dest in immutable_args:
                     group_div.children[-1].children[-1].disabled = True
 
                 self.config_states.append(State(action.dest, "value"))
