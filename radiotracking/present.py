@@ -65,6 +65,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
                  ):
         threading.Thread.__init__(self)
         self.device = device
+        self.calibrate = calibrate
         self.calibration = calibration
         self.signal_queue: Deque[Signal] = collections.deque(maxlen=dashboard_signals)
         self.matched_queue: Deque[MatchedSignal] = collections.deque(maxlen=dashboard_signals)
@@ -111,13 +112,15 @@ class Dashboard(AbstractConsumer, threading.Thread):
         ])(self.update_signal_variance)
 
         graph_tab = dcc.Tab(label="Graphs", children=[])
-        if calibrate:
-            graph_tab.children.append(html.H4("Running in calibration mode.",
-                                              style={"text-align": "center",
-                                                     "width": "100%",
-                                                     "background-color": "#ffcccb",
-                                                     "padding": "20px",
-                                                     }))
+        graph_tab.children.append(html.H4("Running in calibration mode.", hidden=not calibrate, id="calibration-banner",
+                                          style={"text-align": "center",
+                                                 "width": "100%",
+                                                 "background-color": "#ffcccb",
+                                                 "padding": "20px",
+                                                 }))
+        self.app.callback(Output("calibration-banner", "hidden"), [
+            Input("update", "n_intervals"),
+        ])(self.update_calibration_banner)
 
         graph_tab.children.append(dcc.Interval(id="update", interval=1000))
         self.app.callback(Output("update", "interval"), [Input("interval-slider", "value")])(self.update_interval)
@@ -325,6 +328,9 @@ class Dashboard(AbstractConsumer, threading.Thread):
             html.H2("Calibration Table"),
             table,
         ], style={"break-inside": "avoid-column"})
+
+    def update_calibration_banner(self, n):
+        return not self.calibrate
 
     def submit_config(self, clicks, *form_args):
         msg = html.Div(children=[])
