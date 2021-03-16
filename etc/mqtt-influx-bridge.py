@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser(
     description="Relay radiotracking signals from mqtt to influx",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
-parser.add_argument("-v", "--verbose", help="increase verbosity", action="store_true")
+parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
 parser.add_argument("--round-duration", help="value to round duration to (ms)", default=8, type=float)
 parser.add_argument("--round-freq", help="value to round frequency to (MHz)", default=0.008, type=float)
 
@@ -49,7 +49,7 @@ def on_signal_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
     frequency_rounded = prec_round(signal.pop("Frequency") / 1000 / 1000, 3, args.round_freq)
 
     # log info message
-    logging.info(f"Received Signal from {station}, device {device}: {frequency_rounded} MHz, {duration_rounded} ms")
+    logging.debug(f"Received Signal from {station}, device {device}: {frequency_rounded} MHz, {duration_rounded} ms")
 
     # create influx body
     json_body = {
@@ -65,7 +65,8 @@ def on_signal_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
     }
 
     # write influx message
-    influxc.write_points([json_body])
+    if not influxc.write_points([json_body]):
+        logging.warn("Error writing signal")
 
 
 def on_matched_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
@@ -79,7 +80,7 @@ def on_matched_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
     frequency_rounded = prec_round(matched.pop("Frequency") / 1000 / 1000, 3, args.round_freq)
 
     # log info message
-    logging.info(f"Received Matched Signal from {station}: {frequency_rounded} MHz, {duration_rounded} ms")
+    logging.debug(f"Received Matched Signal from {station}: {frequency_rounded} MHz, {duration_rounded} ms")
 
     # create influx body
     json_body = {
@@ -94,21 +95,24 @@ def on_matched_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
     }
 
     # write influx message
-    influxc.write_points([json_body])
+    if not influxc.write_points([json_body]):
+        logging.warn("Error writing matched signal")
 
 
 def on_connect(mqttc: mqtt.Client, inlfuxc, flags, rc):
-    logging.debug(f"MQTT connection established ({rc})")
+    logging.info(f"MQTT connection established ({rc})")
 
     # subscribe to signal cbor messages
     topic_signal_cbor = "+/radiotracking/device/+/cbor"
     mqttc.subscribe(topic_signal_cbor)
     mqttc.message_callback_add(topic_signal_cbor, on_signal_cbor)
+    logging.info(f"Subscribed to {topic_signal_cbor}")
 
     # subscribe to match signal cbor messages
     topic_matched_cbor = "+/radiotracking/matched/cbor"
     mqttc.subscribe(topic_matched_cbor)
     mqttc.message_callback_add(topic_matched_cbor, on_matched_cbor)
+    logging.info(f"Subscribed to {topic_matched_cbor}")
 
 
 if __name__ == "__main__":
@@ -126,6 +130,7 @@ if __name__ == "__main__":
                              database="radiotracking"
                              )
     influxc.create_database("radiotracking")
+    logging.info(f"Connected to InfluxDB {args.influx_host}:{args.influx_port}")
 
     # create client object and set callback methods
     mqttc = mqtt.Client(client_id=f"{platform.node()}-mqtt-influx-bridge", clean_session=False, userdata=influxc)
@@ -138,5 +143,9 @@ if __name__ == "__main__":
     if args.mqtt_username:
         mqttc.username_pw_set(args.mqtt_username, args.mqtt_password)
 
-    mqttc.connect(args.mqtt_host, args.mqtt_port, args.mqtt_keepalive)
-    mqttc.loop_forever()
+    ret = mqttc.connect(args.mqtt_host, args.mqtt_port, args.mqtt_keepalive)
+    if ret == mqtt.MQTT_ERR_SUCCESS:
+        mqttc.loop_forever()
+    else:
+        logging.critical(f"MQTT connetion failed: {ret}")
+        exit(ret)
