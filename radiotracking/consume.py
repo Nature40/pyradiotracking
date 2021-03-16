@@ -37,6 +37,13 @@ def cborify(encoder, o):
         encoder.encode(cbor.CBORTag(1337, o.total_seconds()))
 
 
+def uncborify(decoder, tag, shareable_index=None):
+    if tag.tag == 1337:
+        return datetime.timedelta(seconds=tag.value)
+
+    return tag
+
+
 def csvify(o):
     if isinstance(o, datetime.timedelta):
         return o.total_seconds()
