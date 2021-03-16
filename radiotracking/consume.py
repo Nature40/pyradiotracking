@@ -64,6 +64,7 @@ class MQTTConsumer(AbstractConsumer):
         self.mqtt_qos = mqtt_qos
         self.client = paho.mqtt.client.Client(f"{platform.node()}-radiotracking", clean_session=False)
         self.client.connect(mqtt_host, mqtt_port, keepalive=mqtt_keepalive)
+        self.client.loop_start()
 
     def add(self, signal: AbstractSignal):
 
