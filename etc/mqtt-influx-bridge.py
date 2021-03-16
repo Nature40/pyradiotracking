@@ -11,7 +11,7 @@ import cbor2 as cbor
 import influxdb
 import paho.mqtt.client as mqtt
 from influxdb import InfluxDBClient
-from radiotracking import Signal
+from radiotracking import MatchedSignal, Signal
 from radiotracking.consume import uncborify
 
 parser = argparse.ArgumentParser(
@@ -37,21 +37,24 @@ parser.add_argument("--influx-username", default="root", type=str)
 parser.add_argument("--influx-password", default="root", type=str)
 
 
+def prec_round(number: float, ndigits: int, base: float):
+    return round(base * round(float(number) / base), ndigits)
+
+
 def on_signal_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
+    # extract payload and meta data
     signal_list = cbor.loads(message.payload, tag_hook=uncborify)
     station, _, _, device, _ = message.topic.split('/')
     signal = dict(zip(Signal.header, signal_list))
 
-    def prec_round(number: float, ndigits: int, base: float):
-        return round(base * round(float(number) / base), ndigits)
-
-    # round duration to integers in steps of two
+    # round values according to config
     duration_rounded = prec_round(signal.pop("Duration").total_seconds() * 1000, 0, args.round_duration)
-    # round frequency to 3 decimals in steps of 0.004 mHz == 4 kHz
     frequency_rounded = prec_round(signal.pop("Frequency") / 1000 / 1000, 3, args.round_freq)
 
+    # log info message
     logging.info(f"Received Signal from {station}, device {device}: {frequency_rounded} MHz, {duration_rounded} ms")
 
+    # create influx body
     json_body = {
         "measurement": "signal",
         "tags": {
@@ -64,16 +67,51 @@ def on_signal_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
         "fields": signal
     }
 
-    influxc.write_points([json_body], tags={"station": station, "device": device})
+    # write influx message
+    influxc.write_points([json_body])
+
+
+def on_matched_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
+    # extract payload and meta data
+    matched_list = cbor.loads(message.payload, tag_hook=uncborify)
+    station, _, _, _ = message.topic.split('/')
+    matched = dict(zip(MatchedSignal(["0", "1", "2", "3"]).header, matched_list))
+
+    # round values according to config
+    duration_rounded = prec_round(matched.pop("Duration").total_seconds() * 1000, 0, args.round_duration)
+    frequency_rounded = prec_round(matched.pop("Frequency") / 1000 / 1000, 3, args.round_freq)
+
+    # log info message
+    logging.info(f"Received Matched Signal from {station}: {frequency_rounded} MHz, {duration_rounded} ms")
+
+    # create influx body
+    json_body = {
+        "measurement": "matched",
+        "tags": {
+            "Station": station,
+            "Frequency (MHz)": frequency_rounded,
+            "Duration (ms)": duration_rounded,
+        },
+        "time": matched.pop("Time"),
+        "fields": matched
+    }
+
+    # write influx message
+    influxc.write_points([json_body])
 
 
 def on_connect(mqttc: mqtt.Client, inlfuxc, flags, rc):
     logging.debug(f"MQTT connection established ({rc})")
 
+    # subscribe to signal cbor messages
     topic_signal_cbor = "+/radiotracking/device/+/cbor"
     mqttc.subscribe(topic_signal_cbor)
-    # mqttc.message_callback_add()
     mqttc.message_callback_add(topic_signal_cbor, on_signal_cbor)
+
+    # subscribe to match signal cbor messages
+    topic_matched_cbor = "+/radiotracking/matched/cbor"
+    mqttc.subscribe(topic_matched_cbor)
+    mqttc.message_callback_add(topic_matched_cbor, on_matched_cbor)
 
 
 if __name__ == "__main__":
