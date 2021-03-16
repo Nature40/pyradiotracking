@@ -2,13 +2,10 @@
 
 import argparse
 import logging
-import math
 import platform
 import ssl
-from typing import SupportsRound
 
 import cbor2 as cbor
-import influxdb
 import paho.mqtt.client as mqtt
 from influxdb import InfluxDBClient
 from radiotracking import MatchedSignal, Signal
