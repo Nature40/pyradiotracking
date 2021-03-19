@@ -224,6 +224,9 @@ class SignalAnalyzer(multiprocessing.Process):
         """
         signals = []
 
+        if len(times) == 0:
+            return signals
+
         signal_min_duration_num = self.signal_min_duration / (times[1] - times[0])
 
         # iterate over all frequencies
