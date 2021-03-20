@@ -38,7 +38,7 @@ def prec_round(number: float, ndigits: int, base: float):
     return round(base * round(float(number) / base), ndigits)
 
 
-def on_signal_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
+def on_signal_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
     # extract payload and meta data
     signal_list = cbor.loads(message.payload, tag_hook=uncborify)
     station, _, _, device, _ = message.topic.split('/')
@@ -69,7 +69,7 @@ def on_signal_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
         logging.warn("Error writing signal")
 
 
-def on_matched_cbor(client: mqtt.Client, inlfuxc: InfluxDBClient, message):
+def on_matched_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
     # extract payload and meta data
     matched_list = cbor.loads(message.payload, tag_hook=uncborify)
     station, _, _, _ = message.topic.split('/')
