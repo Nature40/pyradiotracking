@@ -37,7 +37,8 @@ class SignalMatcher(AbstractConsumer):
             return
         now = sig.ts
 
-        for msig in self._matched:
+        # iterate on a copy of the list to enable removing of elements
+        for msig in list(self._matched):
             if msig.ts_mid < now - self.matching_timeout:
                 logger.info(f"Timed out {msig}, consuming.")
                 self.consume(msig)
