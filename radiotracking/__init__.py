@@ -107,7 +107,53 @@ class Signal(AbstractSignal):
         return f"Signal<{self.device}, {self.frequency/1000/1000} MHz, {self.duration.total_seconds()*1000:.2} ms, {self.max} dBW>"
 
 
-class MatchingSignal(AbstractSignal):
+class MatchedSignal(AbstractSignal):
+    def __init__(
+        self,
+        devices: List[str],
+        ts: Union[datetime.datetime, str],
+        frequency: Union[float, str],
+        duration: Union[datetime.timedelta, float, str],
+        *avgs: float,
+    ):
+        self.devices = devices
+
+        if isinstance(ts, datetime.datetime):
+            self.ts = ts
+        else:
+            self.ts = datetime.datetime.fromisoformat(ts)
+        self.frequency = float(frequency)
+        if isinstance(duration, datetime.timedelta):
+            self.duration = duration
+        else:
+            self.duration = datetime.timedelta(seconds=float(duration))
+
+        self._avgs = avgs
+
+    @property
+    def header(self):
+        return [
+            "Time",
+            "Frequency",
+            "Duration",
+            *self.devices,
+        ]
+
+    @property
+    def as_list(self) -> list:
+        return [
+            self.ts,
+            self.frequency,
+            self.duration,
+            *self._avgs
+        ]
+
+    def __repr__(self) -> str:
+        avgs_str = ", ".join([repr(a) for a in self._avgs])
+        return f"MatchedSignal({self.devices}, {self.ts}, {self.frequency}, {self.duration}, {avgs_str})"
+
+
+class MatchingSignal(MatchedSignal):
     def __init__(self, devices: List[str]):
         self.devices = devices
         self._sigs: Dict[str, Signal] = {}
@@ -129,25 +175,8 @@ class MatchingSignal(AbstractSignal):
         return statistics.median([sig.frequency for sig in self._sigs.values()])
 
     @property
-    def header(self):
-        return [
-            "Time",
-            "Frequency",
-            "Duration",
-            *self.devices,
-        ]
-
-    @property
-    def as_list(self) -> list:
-        return [
-            self.ts,
-            self.frequency,
-            self.duration,
-            *[self._sigs[d].avg if d in self._sigs else None for d in self.devices]
-        ]
-
-    def __str__(self):
-        return f"MatchingSignal<{self.ts_mid}, {self.frequency/1000/1000} MHz, members {list(self._sigs.keys())}>"
+    def _avgs(self):
+        return [self._sigs[d].avg if d in self._sigs else None for d in self.devices]
 
     def has_member(self,
                    sig: Signal,
