@@ -3,7 +3,7 @@ import logging
 import multiprocessing
 from typing import List
 
-from radiotracking import AbstractSignal, MatchedSignal, Signal
+from radiotracking import AbstractSignal, MatchingSignal, Signal
 from radiotracking.consume import AbstractConsumer
 
 logger = logging.getLogger(__name__)
@@ -26,9 +26,9 @@ class SignalMatcher(AbstractConsumer):
         self.matching_duration_diff = datetime.timedelta(milliseconds=matching_duration_diff_ms) if matching_duration_diff_ms else None
         self.signal_queue = signal_queue
 
-        self._matched: List[MatchedSignal] = []
+        self._matched: List[MatchingSignal] = []
 
-    def consume(self, msig: MatchedSignal):
+    def consume(self, msig: MatchingSignal):
         self.signal_queue.put(msig)
         self._matched.remove(msig)
 
@@ -49,7 +49,7 @@ class SignalMatcher(AbstractConsumer):
                 logger.debug(f"Found member of {msig}")
                 return
 
-        msig = MatchedSignal(self.devices)
+        msig = MatchingSignal(self.devices)
         msig.add_member(sig)
         logger.debug(f"Created new {msig}")
         self._matched.append(msig)

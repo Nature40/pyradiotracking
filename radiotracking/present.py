@@ -14,7 +14,7 @@ import plotly.graph_objs as go
 from dash.dependencies import Input, Output, State
 from werkzeug.serving import ThreadedWSGIServer
 
-from radiotracking import AbstractSignal, MatchedSignal, Signal
+from radiotracking import AbstractSignal, MatchingSignal, Signal
 from radiotracking.__main__ import Runner
 from radiotracking.consume import AbstractConsumer
 
@@ -68,7 +68,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
         self.calibrate = calibrate
         self.calibration = calibration
         self.signal_queue: Deque[Signal] = collections.deque(maxlen=dashboard_signals)
-        self.matched_queue: Deque[MatchedSignal] = collections.deque(maxlen=dashboard_signals)
+        self.matched_queue: Deque[MatchingSignal] = collections.deque(maxlen=dashboard_signals)
 
         # compute boundaries for sliders and initialize filters
         frequency_min = center_freq - sample_rate / 2
@@ -290,7 +290,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
             else:
                 self.calibrations[signal.frequency][signal.device] = max(self.calibrations[signal.frequency][signal.device], signal.avg)
 
-        elif isinstance(signal, MatchedSignal):
+        elif isinstance(signal, MatchingSignal):
             self.matched_queue.append(signal)
 
     def update_calibration(self, n):

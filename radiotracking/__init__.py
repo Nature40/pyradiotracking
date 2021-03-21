@@ -107,7 +107,7 @@ class Signal(AbstractSignal):
         return f"Signal<{self.device}, {self.frequency/1000/1000} MHz, {self.duration.total_seconds()*1000:.2} ms, {self.max} dBW>"
 
 
-class MatchedSignal(AbstractSignal):
+class MatchingSignal(AbstractSignal):
     def __init__(self, devices: List[str]):
         self.devices = devices
         self._sigs: Dict[str, Signal] = {}
@@ -147,7 +147,7 @@ class MatchedSignal(AbstractSignal):
         ]
 
     def __str__(self):
-        return f"MatchedSignal<{self.ts_mid}, {self.frequency/1000/1000} MHz, members {list(self._sigs.keys())}>"
+        return f"MatchingSignal<{self.ts_mid}, {self.frequency/1000/1000} MHz, members {list(self._sigs.keys())}>"
 
     def has_member(self,
                    sig: Signal,

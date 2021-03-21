@@ -8,7 +8,7 @@ import ssl
 import cbor2 as cbor
 import paho.mqtt.client as mqtt
 from influxdb import InfluxDBClient
-from radiotracking import MatchedSignal, Signal
+from radiotracking import MatchingSignal, Signal
 from radiotracking.consume import uncborify
 
 parser = argparse.ArgumentParser(
@@ -73,7 +73,7 @@ def on_matched_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
     # extract payload and meta data
     matched_list = cbor.loads(message.payload, tag_hook=uncborify)
     station, _, _, _ = message.topic.split('/')
-    matched = dict(zip(MatchedSignal(["0", "1", "2", "3"]).header, matched_list))
+    matched = dict(zip(MatchingSignal(["0", "1", "2", "3"]).header, matched_list))
 
     # round values according to config
     duration_rounded = prec_round(matched.pop("Duration").total_seconds() * 1000, 0, args.round_duration)

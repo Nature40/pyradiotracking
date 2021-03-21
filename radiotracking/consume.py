@@ -15,7 +15,7 @@ from typing import List, Type
 import cbor2 as cbor
 import paho.mqtt.client
 
-from radiotracking import AbstractSignal, MatchedSignal, Signal
+from radiotracking import AbstractSignal, MatchingSignal, Signal
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class MQTTConsumer(AbstractConsumer):
 
         if isinstance(signal, Signal):
             path = f"{self.prefix}/device/{signal.device}"
-        elif isinstance(signal, MatchedSignal):
+        elif isinstance(signal, MatchingSignal):
             path = f"{self.prefix}/matched"
         else:
             logger.critical(f"Unknown data type {type(signal)}, skipping.")
@@ -154,7 +154,7 @@ class ProcessConnector:
             sig_stdout_consumer = CSVConsumer(sys.stdout, Signal)
             self.consumers.append(sig_stdout_consumer)
         if match_stdout:
-            match_stdout_consumer = CSVConsumer(sys.stdout, MatchedSignal)
+            match_stdout_consumer = CSVConsumer(sys.stdout, MatchingSignal)
             self.consumers.append(match_stdout_consumer)
 
         # add csv consumer
@@ -172,7 +172,7 @@ class ProcessConnector:
             # create consumer for matched signals
             matched_csv_path = f"{path}/{station}_{ts:%Y-%m-%dT%H%M%S}-matched"
             matched_csv_path += "_calibration" if calibrate else ""
-            matched_csv_consumer = CSVConsumer(open(f"{matched_csv_path}.csv", "w"), cls=MatchedSignal, header=MatchedSignal(device).header)
+            matched_csv_consumer = CSVConsumer(open(f"{matched_csv_path}.csv", "w"), cls=MatchingSignal, header=MatchingSignal(device).header)
             self.consumers.append(matched_csv_consumer)
 
         # add mqtt consumer (only if not in calibration)
