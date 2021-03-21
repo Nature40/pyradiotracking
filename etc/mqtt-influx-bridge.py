@@ -8,7 +8,7 @@ import ssl
 import cbor2 as cbor
 import paho.mqtt.client as mqtt
 from influxdb import InfluxDBClient
-from radiotracking import MatchingSignal, Signal
+from radiotracking import MatchedSignal, Signal
 from radiotracking.consume import uncborify
 
 parser = argparse.ArgumentParser(
@@ -17,7 +17,8 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
 parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
-parser.add_argument("--round-duration", help="value to round duration to (ms)", default=8, type=float)
+parser.add_argument("--duration-buckets", help="center of duration bucket (ms)", nargs="*", default=[10, 20, 40], type=float)
+parser.add_argument("--duration-bucket-width", help="width of duration bucket (ms)", default=4, type=float)
 parser.add_argument("--round-freq", help="value to round frequency to (MHz)", default=0.008, type=float)
 
 parser.add_argument("--mqtt-host", help="hostname for MQTT broker connection", default="localhost")
@@ -69,29 +70,42 @@ def on_signal_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
         logging.warn("Error writing signal")
 
 
+def get_bucket(val, buckets, width):
+    for buck in buckets:
+        if val > buck - width and val < buck + width:
+            return buck
+
+    return None
+
+
 def on_matched_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
     # extract payload and meta data
     matched_list = cbor.loads(message.payload, tag_hook=uncborify)
+    msig = MatchedSignal(["0", "1", "2", "3"], *matched_list)
     station, _, _, _ = message.topic.split('/')
-    matched = dict(zip(MatchingSignal(["0", "1", "2", "3"]).header, matched_list))
+    matched = msig.as_dict
 
     # round values according to config
-    duration_rounded = prec_round(matched.pop("Duration").total_seconds() * 1000, 0, args.round_duration)
-    frequency_rounded = prec_round(matched.pop("Frequency") / 1000 / 1000, 3, args.round_freq)
+    duration_bucket = get_bucket(matched["Duration"].total_seconds() * 1000, args.duration_buckets, args.duration_bucket_width)
+    frequency_bucket = prec_round(matched["Frequency"] / 1000 / 1000, 3, args.round_freq)
 
     # log info message
-    logging.debug(f"Received Matched Signal from {station}: {frequency_rounded} MHz, {duration_rounded} ms")
+    logging.debug(f"{station}: {matched}")
 
     # create influx body
     json_body = {
         "measurement": "matched",
         "tags": {
             "Station": station,
-            "Frequency (MHz)": frequency_rounded,
-            "Duration (ms)": duration_rounded,
+            "Frequency (MHz)": frequency_bucket,
+            "Duration (ms)": duration_bucket,
         },
         "time": matched.pop("Time"),
-        "fields": matched
+        "fields": {
+            "Duration (ms)": matched.pop("Duration").total_seconds() * 1000,
+            "Frequency (MHz)": matched["Frequency"] / 1000 / 1000,
+            **matched
+        }
     }
 
     # write influx message
