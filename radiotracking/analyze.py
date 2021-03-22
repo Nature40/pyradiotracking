@@ -133,7 +133,7 @@ class SignalAnalyzer(multiprocessing.Process):
 
         # warn on clock drift and resync
         if clock_drift > 2 * buffer_len_dt.total_seconds():
-            logger.warning(f"SDR {self.device} total clock drift ({clock_drift:.5} s) is larger than two blocks, signal detection is degraded. Resyncing...")
+            logger.warning(f"SDR {self.device} total clock drift ({clock_drift:.5f} s) is larger than two blocks, signal detection is degraded. Resyncing...")
             self._ts = ts_recv
             self._spectrogram_last = None
 
@@ -162,7 +162,7 @@ class SignalAnalyzer(multiprocessing.Process):
 
         logger.info(
             f"SDR {self.device} recv {len(buffer)}, "
-            + f"clock drift: {clock_drift:.2} s, "
+            + f"clock drift: {clock_drift:.2f} s, "
             + f"filtered {len(filtered)} / {len(signals)} signals, "
             + f"block len: {(buffer_len_dt.total_seconds())*100:.1f} ms, "
             + f"compute: {(bench_consume-bench_start)*100:.1f} ms"

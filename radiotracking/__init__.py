@@ -99,7 +99,7 @@ class Signal(AbstractSignal):
         return f"Signal({self.device}, {self.ts}, {self.frequency}, {self.duration}, {self.max}, {self.avg}, {self.std}, {self.noise}, {self.snr})"
 
     def __str__(self):
-        return f"Signal<{self.device}, {self.frequency/1000/1000} MHz, {self.duration.total_seconds()*1000:.2} ms, {self.max} dBW>"
+        return f"Signal<SDR {self.device}, {self.frequency/1000/1000:.3f} MHz, {self.duration.total_seconds()*1000:.2f} ms, {self.max:.1f} dBW>"
 
 
 class MatchedSignal(AbstractSignal):
@@ -144,8 +144,12 @@ class MatchedSignal(AbstractSignal):
         ]
 
     def __repr__(self) -> str:
-        avgs_str = ", ".join([repr(a) for a in self._avgs])
+        avgs_str = ", ".join([repr(avg) for avg in self._avgs])
         return f"MatchedSignal({self.devices}, {self.ts}, {self.frequency}, {self.duration}, {avgs_str})"
+
+    def __str__(self):
+        avgs_str = ", ".join([f"{avg:.2f}" if avg else f"{None}" for avg in self._avgs])
+        return f"{self.__class__.__name__}<SDRs {self.devices}, {self.frequency/1000/1000:.3f} MHz, {self.duration.total_seconds()*1000:.2f} ms, dBWs: [{avgs_str}]>"
 
 
 class MatchingSignal(MatchedSignal):
