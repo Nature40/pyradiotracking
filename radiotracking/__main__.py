@@ -19,7 +19,7 @@ from radiotracking.config import ArgConfParser
 from radiotracking.consume import ProcessConnector
 from radiotracking.match import SignalMatcher
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("radiotracking")
 
 
 class Runner:
