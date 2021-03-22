@@ -34,7 +34,6 @@ class AbstractSignal(ABC):
 
 
 class Signal(AbstractSignal):
-    min_dBW: float
     max_dBW: float
     avg_dBW: float
     std_dB: float
