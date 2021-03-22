@@ -209,4 +209,10 @@ class MatchingSignal(MatchedSignal):
     def add_member(self, sig: Signal):
         if sig.device in self._sigs:
             logger.warning(f"{sig} already contained in {self}")
-        self._sigs[sig.device] = sig
+            if self._sigs[sig.device].avg < sig.avg:
+                logger.warning(f"Replacing initial {self._sigs[sig.device]}")
+                self._sigs[sig.device] = sig
+            else:
+                logger.warning(f"Keeping initial {self._sigs[sig.device]}")
+        else:
+            self._sigs[sig.device] = sig
