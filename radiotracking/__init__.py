@@ -208,5 +208,5 @@ class MatchingSignal(MatchedSignal):
 
     def add_member(self, sig: Signal):
         if sig.device in self._sigs:
-            logger.warning(f"Signal of {sig.device} already contained in {self}")
+            logger.warning(f"{sig} already contained in {self}")
         self._sigs[sig.device] = sig
