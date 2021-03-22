@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument("-v", "--verbose", help="increase output verbosity", action="count", default=0)
 parser.add_argument("--duration-buckets", help="center of duration bucket (ms)", nargs="*", default=[10, 20, 40], type=float)
-parser.add_argument("--duration-bucket-width", help="width of duration bucket (ms)", default=4, type=float)
+parser.add_argument("--duration-bucket-width", help="width of duration bucket (ms)", default=5, type=float)
 parser.add_argument("--round-freq", help="value to round frequency to (MHz)", default=0.008, type=float)
 
 parser.add_argument("--mqtt-host", help="hostname for MQTT broker connection", default="localhost")
@@ -39,18 +39,27 @@ def prec_round(number: float, ndigits: int, base: float):
     return round(base * round(float(number) / base), ndigits)
 
 
+def get_bucket(val, buckets, width):
+    for buck in buckets:
+        if val > buck - width and val < buck + width:
+            return buck
+
+    return None
+
+
 def on_signal_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
     # extract payload and meta data
     signal_list = cbor.loads(message.payload, tag_hook=uncborify)
     station, _, _, device, _ = message.topic.split('/')
-    signal = dict(zip(Signal.header, signal_list))
+    sig = Signal(*signal_list)
+    signal = sig.as_dict
 
     # round values according to config
-    duration_rounded = prec_round(signal.pop("Duration").total_seconds() * 1000, 0, args.round_duration)
-    frequency_rounded = prec_round(signal.pop("Frequency") / 1000 / 1000, 3, args.round_freq)
+    duration_bucket = get_bucket(signal["Duration"].total_seconds() * 1000, args.duration_buckets, args.duration_bucket_width)
+    frequency_bucket = prec_round(signal["Frequency"] / 1000 / 1000, 3, args.round_freq)
 
     # log info message
-    logging.debug(f"Received Signal from {station}, device {device}: {frequency_rounded} MHz, {duration_rounded} ms")
+    logging.debug(f"{station}: {sig}")
 
     # create influx body
     json_body = {
@@ -58,24 +67,20 @@ def on_signal_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
         "tags": {
             "Station": station,
             "Device": signal.pop("Device"),
-            "Frequency (MHz)": frequency_rounded,
-            "Duration (ms)": duration_rounded,
+            "Frequency (MHz)": frequency_bucket,
+            "Duration (ms)": duration_bucket,
         },
         "time": signal.pop("Time"),
-        "fields": signal
+        "fields": {
+            "Duration (ms)": signal.pop("Duration").total_seconds() * 1000,
+            "Frequency (MHz)": signal["Frequency"] / 1000 / 1000,
+            **signal
+        }
     }
 
     # write influx message
     if not influxc.write_points([json_body]):
         logging.warn("Error writing signal")
-
-
-def get_bucket(val, buckets, width):
-    for buck in buckets:
-        if val > buck - width and val < buck + width:
-            return buck
-
-    return None
 
 
 def on_matched_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
@@ -90,7 +95,7 @@ def on_matched_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
     frequency_bucket = prec_round(matched["Frequency"] / 1000 / 1000, 3, args.round_freq)
 
     # log info message
-    logging.debug(f"{station}: {matched}")
+    logging.debug(f"{station}: {msig}")
 
     # create influx body
     json_body = {
