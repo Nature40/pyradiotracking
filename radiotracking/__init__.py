@@ -70,10 +70,6 @@ class Signal(AbstractSignal):
         self.noise = float(noise_dBW)
         self.snr = float(snr_dB)
 
-    @property
-    def ts_mid(self):
-        return self.ts + (self.duration / 2.0)
-
     header = [
         "Device",
         "Time",
@@ -165,10 +161,6 @@ class MatchingSignal(MatchedSignal):
     @property
     def ts(self):
         return min([sig.ts for sig in self._sigs.values()])
-
-    @property
-    def ts_mid(self) -> datetime.datetime:
-        return self.ts + (self.duration / 2.0)
 
     @property
     def frequency(self):
