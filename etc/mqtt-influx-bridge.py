@@ -67,8 +67,8 @@ def on_signal_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
         "tags": {
             "Station": station,
             "Device": signal.pop("Device"),
-            "Frequency (MHz)": frequency_bucket,
-            "Duration (ms)": duration_bucket,
+            "Frequency Bucket (MHz)": frequency_bucket,
+            "Duration Bucket (ms)": duration_bucket,
         },
         "time": signal.pop("Time"),
         "fields": {
@@ -102,8 +102,8 @@ def on_matched_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
         "measurement": "matched",
         "tags": {
             "Station": station,
-            "Frequency (MHz)": frequency_bucket,
-            "Duration (ms)": duration_bucket,
+            "Frequency Bucket (MHz)": frequency_bucket,
+            "Duration Bucket (ms)": duration_bucket,
         },
         "time": matched.pop("Time"),
         "fields": {
