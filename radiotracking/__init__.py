@@ -123,7 +123,7 @@ class MatchedSignal(AbstractSignal):
         else:
             self.duration = datetime.timedelta(seconds=float(duration))
 
-        self._avgs = avgs
+        self._avgs: List[float] = avgs
 
     @property
     def header(self):
@@ -170,7 +170,7 @@ class MatchingSignal(MatchedSignal):
         return statistics.median([sig.frequency for sig in self._sigs.values()])
 
     @property
-    def _avgs(self):
+    def _avgs(self) -> List[float]:
         return [self._sigs[d].avg if d in self._sigs else None for d in self.devices]
 
     def has_member(self,
