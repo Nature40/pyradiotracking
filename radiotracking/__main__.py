@@ -91,7 +91,8 @@ class Runner:
         if sdr_max_restart is not None:
             dargs.sdr_max_restart = sdr_max_restart
 
-        analyzer = SignalAnalyzer(signal_queue=self.connector.q, **vars(dargs))
+        last_data_ts = multiprocessing.Value("d", 0.0)
+        analyzer = SignalAnalyzer(signal_queue=self.connector.q, last_data_ts=last_data_ts, **vars(dargs))
         analyzer.start()
 
         try:
@@ -118,16 +119,37 @@ class Runner:
         self.analyzers = []
 
     def check_analyzers(self):
+        now = datetime.datetime.now()
+
         # iterate the analyzer copy to allow for altering (restarting) analyzers
         for analyzer in self.analyzers.copy():
+            # check if the process itself is running
             if analyzer.is_alive():
-                continue
+                # check if analyzer has started yet
+                if analyzer.last_data_ts.value == 0.0:
+                    continue
 
+                # check if last data timestamp is within timeout
+                if analyzer.last_data_ts.value > datetime.datetime.timestamp(now) - analyzer.sdr_timeout_s:
+                    logger.info(f"SDR {analyzer.device} received last data {datetime.datetime.fromtimestamp(analyzer.last_data_ts.value)}")
+                    continue
+
+                # kill timed out analyzer
+                logger.warning(f"SDR {analyzer.device} received last data {datetime.datetime.fromtimestamp(analyzer.last_data_ts.value)}; timed out.")
+                analyzer.kill()
+                analyzer.join()
+
+            else:
+                logger.info(f"SDR {analyzer.device} process is dead.")
+
+            # check if SDR allows further restarts
             if analyzer.sdr_max_restart <= 0:
                 logger.critical(f"SDR {analyzer.device} is dead and beyond restart count, terminating.")
                 self.terminate(signal.SIGTERM)
                 break
 
+            # create new device
+            logger.warning(f"SDR {analyzer.device} will be restarted.")
             new_analyzer = self.create_and_start(analyzer.device, analyzer.calibration_db, analyzer.sdr_max_restart - 1)
             self.analyzers.remove(analyzer)
             self.analyzers.append(new_analyzer)

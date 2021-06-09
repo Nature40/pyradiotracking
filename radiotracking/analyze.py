@@ -35,6 +35,7 @@ class SignalAnalyzer(multiprocessing.Process):
         sdr_timeout_s: int,
         sdr_callback_length: int,
         signal_queue: multiprocessing.Queue,
+        last_data_ts: multiprocessing.Value,
         **kwargs,
     ):
         super().__init__()
@@ -78,12 +79,14 @@ class SignalAnalyzer(multiprocessing.Process):
         self.sdr_timeout_s = sdr_timeout_s
 
         self.signal_queue = signal_queue
+        self.last_data_ts = last_data_ts
 
         self._spectrogram_last = None
         self._ts = None
 
     def run(self):
         signal.signal(signal.SIGTERM, self.handle_signal)
+        signal.signal(signal.SIGINT, self.handle_signal)
 
         # logging levels increase in steps of 10, start with warning
         logging_level = max(0, logging.WARN - (self.verbose * 10))
@@ -107,6 +110,8 @@ class SignalAnalyzer(multiprocessing.Process):
             logger.warning(f"SDR {self.device} received SIGALRM, last data received {datetime.datetime.now() - self._ts} ago.")
         elif sig == signal.SIGTERM:
             logger.warning(f"SDR {self.device} received SIGTERM, terminating.")
+        elif sig == signal.SIGINT:
+            return
 
         self.sdr.cancel_read_async()
 
@@ -122,6 +127,8 @@ class SignalAnalyzer(multiprocessing.Process):
 
         # reset alarm timer
         signal.alarm(self.sdr_timeout_s)
+        self.last_data_ts.value = datetime.datetime.timestamp(ts_recv)
+        logger.info(f"SDR {self.device} received data at {self.last_data_ts.value}")
 
         # initialize / advance clock
         if not self._ts:
