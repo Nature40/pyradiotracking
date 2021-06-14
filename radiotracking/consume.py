@@ -73,6 +73,10 @@ class MQTTConsumer(AbstractConsumer):
         self.client.connect(mqtt_host, mqtt_port, keepalive=mqtt_keepalive)
         self.client.loop_start()
 
+    def __del__(self):
+        logger.info("Stopping MQTT thread")
+        self.client.loop_stop()
+
     def add(self, signal: AbstractSignal):
 
         if isinstance(signal, Signal):
