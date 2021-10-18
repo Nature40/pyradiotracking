@@ -8,9 +8,8 @@ from ast import literal_eval
 from typing import DefaultDict, Deque, Dict, Iterable, List, Tuple, Union
 
 import dash
-import dash_core_components as dcc
-import dash_html_components as html
 import plotly.graph_objs as go
+from dash import dcc, html
 from dash.dependencies import Input, Output, State
 from werkzeug.serving import ThreadedWSGIServer
 

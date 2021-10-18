@@ -278,7 +278,7 @@ class Runner:
             # do a connector step with remaining time (check for queued signals)
             self.connector.step(next_check - datetime.datetime.now())
 
-        logger.info(f"Exit main loop")
+        logger.info("Exit main loop")
         exit(0)
 
 
