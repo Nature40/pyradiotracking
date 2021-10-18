@@ -44,8 +44,6 @@ def group(sigs: Iterable[Signal], by: str) -> List[Tuple[str, List[Signal]]]:
 
 class Dashboard(AbstractConsumer, threading.Thread):
     def __init__(self,
-                 running_args: argparse.Namespace,
-                 immutable_args: Iterable[str],
                  device: List[str],
                  calibrate: bool,
                  calibration: List[float],
@@ -110,7 +108,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
             Input("duration-slider", "value"),
         ])(self.update_signal_variance)
 
-        graph_tab = dcc.Tab(label="Graphs", children=[])
+        graph_tab = dcc.Tab(label="tRackIT Signals", children=[])
         graph_tab.children.append(html.H4("Running in calibration mode.", hidden=not calibrate, id="calibration-banner",
                                           style={"text-align": "center",
                                                  "width": "100%",
@@ -191,82 +189,8 @@ class Dashboard(AbstractConsumer, threading.Thread):
             ]))
         graph_tab.children.append(graph_columns)
 
-        config_columns = html.Div(children=[], style={"columns": "2 359px", "padding": "20pt"})
-        config_tab = dcc.Tab(label="Configuration", children=[config_columns])
-        config_columns.children.append(html.Div("Reconfiguration requires restarting of pyradiotracking. Please keep in mind, that a broken configuration might lead to failing starts."))
-
-        self.running_args = running_args
-        self.config_states: List[State] = []
-
-        for group in Runner.parser._action_groups:
-            # skip untitled groups
-            if not isinstance(group.title, str):
-                continue
-
-            # skip groups not used in the config file
-            if len(group._group_actions) == 0:
-                continue
-
-            group_div = html.Div(children=[], style={"break-inside": "avoid-column"})
-            config_columns.children.append(group_div)
-
-            group_div.children.append(html.H3(f"[{group.title}]"))
-
-            # iterate actions and extract values
-            for action in group._group_actions:
-                if action.dest not in vars(running_args):
-                    continue
-
-                group_div.children.append(html.P(children=[
-                    html.B(action.dest),
-                    f" - {action.help}",
-                    html.Br(),
-                    dcc.Input(id=action.dest, value=repr(vars(running_args)[action.dest])),
-                ]))
-
-                value = vars(running_args)[action.dest]
-
-                if action.type == int or isinstance(action, argparse._CountAction):
-                    if not isinstance(value, list):
-                        group_div.children[-1].children[-1].type = "number"
-                        group_div.children[-1].children[-1].step = 1
-                elif action.type == float:
-                    if not isinstance(value, list):
-                        group_div.children[-1].children[-1].type = "number"
-                elif action.type == str:
-                    group_div.children[-1].children[-1].type = "text"
-                    if isinstance(value, list):
-                        group_div.children[-1].children[-1].value = repr(value)
-                    else:
-                        group_div.children[-1].children[-1].value = value
-                elif isinstance(action, argparse._StoreTrueAction):
-                    group_div.children[-1].children[-1] = dcc.Checklist(
-                        id=action.dest,
-                        options=[{"value": action.dest, "disabled": action.dest in immutable_args}, ],
-                        value=[action.dest] if value else [],
-                    )
-
-                if action.dest in immutable_args:
-                    group_div.children[-1].children[-1].disabled = True
-
-                self.config_states.append(State(action.dest, "value"))
-
-        config_columns.children.append(html.Button('Save', id="submit-config"))
-        self.app.callback(Output('config-msg', 'children'),
-                          [Input("submit-config", "n_clicks"), ],
-                          self.config_states
-                          )(self.submit_config)
-
-        config_columns.children.append(html.Button('Restart', id="submit-restart"))
-        self.app.callback(Output('submit-restart', 'children'),
-                          [Input("submit-restart", "n_clicks"), ]
-                          )(self.submit_restart)
-        config_columns.children.append(html.H4("", id="config-msg",
-                                               style={"text-align": "center", "padding": "10px"}))
-
         tabs = dcc.Tabs(children=[])
         tabs.children.append(graph_tab)
-        tabs.children.append(config_tab)
 
         self.app.layout = html.Div([tabs])
         self.app.layout.style = {"font-family": "sans-serif"}
@@ -331,48 +255,6 @@ class Dashboard(AbstractConsumer, threading.Thread):
 
     def update_calibration_banner(self, n):
         return not self.calibrate
-
-    def submit_config(self, clicks, *form_args):
-        msg = html.Div(children=[])
-        args = Runner.parser.parse_args([])
-
-        if not clicks:
-            return msg
-
-        for dest, value in zip([state.component_id for state in self.config_states], form_args):
-            # find corresponding action
-            for action in Runner.parser._actions:
-                if action.dest == dest:
-                    # boolean values are returned as lists, check if id is set
-                    if isinstance(value, list):
-                        args.__dict__[dest] = (dest in value)
-                        continue
-
-                    try:
-                        args.__dict__[dest] = literal_eval(value)
-                    except (ValueError, SyntaxError):
-                        args.__dict__[dest] = value
-                    except Exception as e:
-                        msg.children.append(html.P(f"Error: value for '{dest}' invalid ({repr(e)})."))
-                        return msg
-
-        # write config to actual location
-        try:
-            Runner.parser.write_config(args, open(self.running_args.config, "w"))
-        except Exception as e:
-            msg.children.append(html.P(str(e)))
-            return msg
-
-        msg.children.append(html.P(f"Config successfully written to '{args.config}'."))
-        return msg
-
-    def submit_restart(self, clicks):
-        if not clicks:
-            return "Restart"
-
-        os.kill(os.getpid(), signal.SIGTERM)
-
-        return "Restarting..."
 
     def update_interval(self, interval):
         return interval * 1000
@@ -530,6 +412,154 @@ class Dashboard(AbstractConsumer, threading.Thread):
                           },
             },
         }
+
+    def run(self):
+        self.server.serve_forever()
+
+    def stop(self):
+        self.server.shutdown()
+
+
+class ConfigDashboard(threading.Thread):
+    def __init__(
+            self,
+            running_args: argparse.Namespace,
+            immutable_args: Iterable[str],
+            dashboard_host: str,
+            dashboard_port: int,
+            **kwargs,
+    ):
+
+        self.app = dash.Dash(
+            __name__,
+            url_base_pathname='/radiotracking-config/',
+            meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}])
+
+        config_columns = html.Div(children=[], style={"columns": "2 359px", "padding": "20pt"})
+        config_tab = dcc.Tab(label="tRackIT Configuration", children=[config_columns])
+        config_columns.children.append(html.Div("Reconfiguration requires restarting of pyradiotracking. Please keep in mind, that a broken configuration might lead to failing starts."))
+
+        self.running_args = running_args
+        self.config_states: List[State] = []
+
+        for group in Runner.parser._action_groups:
+            # skip untitled groups
+            if not isinstance(group.title, str):
+                continue
+
+            # skip groups not used in the config file
+            if len(group._group_actions) == 0:
+                continue
+
+            group_div = html.Div(children=[], style={"break-inside": "avoid-column"})
+            config_columns.children.append(group_div)
+
+            group_div.children.append(html.H3(f"[{group.title}]"))
+
+            # iterate actions and extract values
+            for action in group._group_actions:
+                if action.dest not in vars(running_args):
+                    continue
+
+                group_div.children.append(html.P(children=[
+                    html.B(action.dest),
+                    f" - {action.help}",
+                    html.Br(),
+                    dcc.Input(id=action.dest, value=repr(vars(running_args)[action.dest])),
+                ]))
+
+                value = vars(running_args)[action.dest]
+
+                if action.type == int or isinstance(action, argparse._CountAction):
+                    if not isinstance(value, list):
+                        group_div.children[-1].children[-1].type = "number"
+                        group_div.children[-1].children[-1].step = 1
+                elif action.type == float:
+                    if not isinstance(value, list):
+                        group_div.children[-1].children[-1].type = "number"
+                elif action.type == str:
+                    group_div.children[-1].children[-1].type = "text"
+                    if isinstance(value, list):
+                        group_div.children[-1].children[-1].value = repr(value)
+                    else:
+                        group_div.children[-1].children[-1].value = value
+                elif isinstance(action, argparse._StoreTrueAction):
+                    group_div.children[-1].children[-1] = dcc.Checklist(
+                        id=action.dest,
+                        options=[{"value": action.dest, "disabled": action.dest in immutable_args}, ],
+                        value=[action.dest] if value else [],
+                    )
+
+                if action.dest in immutable_args:
+                    group_div.children[-1].children[-1].disabled = True
+
+                self.config_states.append(State(action.dest, "value"))
+
+        config_columns.children.append(html.Button('Save', id="submit-config"))
+        self.app.callback(Output('config-msg', 'children'),
+                          [Input("submit-config", "n_clicks"), ],
+                          self.config_states
+                          )(self.submit_config)
+
+        config_columns.children.append(html.Button('Restart', id="submit-restart"))
+        self.app.callback(Output('submit-restart', 'children'),
+                          [Input("submit-restart", "n_clicks"), ]
+                          )(self.submit_restart)
+        config_columns.children.append(html.H4("", id="config-msg",
+                                               style={"text-align": "center", "padding": "10px"}))
+
+        tabs = dcc.Tabs(children=[])
+        tabs.children.append(config_tab)
+
+        self.app.layout = html.Div([tabs])
+        self.app.layout.style = {"font-family": "sans-serif"}
+
+        self.server = ThreadedWSGIServer(dashboard_host, dashboard_port + 1, self.app.server)
+
+        self.calibrations: Dict[float, Dict[str, float]] = {}
+
+    def submit_config(self, clicks, *form_args):
+        msg = html.Div(children=[])
+        args = Runner.parser.parse_args([])
+
+        if not clicks:
+            return msg
+
+        for dest, value in zip([state.component_id for state in self.config_states], form_args):
+            # find corresponding action
+            for action in Runner.parser._actions:
+                if action.dest == dest:
+                    # boolean values are returned as lists, check if id is set
+                    if isinstance(value, list):
+                        args.__dict__[dest] = (dest in value)
+                        continue
+
+                    try:
+                        args.__dict__[dest] = literal_eval(value)
+                    except (ValueError, SyntaxError):
+                        args.__dict__[dest] = value
+                    except Exception as e:
+                        msg.children.append(html.P(f"Error: value for '{dest}' invalid ({repr(e)})."))
+                        return msg
+
+        # write config to actual location
+        try:
+            Runner.parser.write_config(args, open(self.running_args.config, "w"))
+        except Exception as e:
+            msg.children.append(html.P(str(e)))
+            return msg
+
+        msg.children.append(html.P(f"Config successfully written to '{args.config}'."))
+        return msg
+
+    def submit_restart(self, clicks):
+        if not clicks:
+            return "Restart"
+
+        # this is oddly specific and should be generalized
+        os.system("systemctl restart radiotracking")
+
+        return "Restarting..."
 
     def run(self):
         self.server.serve_forever()

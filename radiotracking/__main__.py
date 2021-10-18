@@ -210,7 +210,7 @@ class Runner:
         if self.args.dashboard:
             from radiotracking.present import Dashboard
 
-            self.dashboard = Dashboard(self.args, Runner.parser.immutable_args(), **self.args.__dict__)
+            self.dashboard = Dashboard(**self.args.__dict__)
             self.connector.consumers.append(self.dashboard)
         else:
             self.dashboard = None
