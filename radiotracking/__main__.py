@@ -76,6 +76,7 @@ class Runner:
     publish_options.add_argument("--mqtt-port", help="port of mqtt broker", default=1883, type=int)
     publish_options.add_argument("--mqtt-qos", help="mqtt quality of service level (0, 1, 2)", default=1, type=int)
     publish_options.add_argument("--mqtt-keepalive", help="timeout for mqtt connection (s)", default=3600, type=int)
+    publish_options.add_argument("-mv", "--mqtt-verbose", help="increase mqtt logging verbosity", action="count", default=0)
 
     # dashboard options
     dashboard_options = parser.add_argument_group("dashboard")
@@ -176,7 +177,9 @@ class Runner:
 
         # logging levels increase in steps of 10, start with warning
         logging_level = max(0, logging.WARN - (self.args.verbose * 10))
-        logging.basicConfig(level=logging_level)
+        logging_stderr = logging.StreamHandler()
+        logging_stderr.setLevel(logging_level)
+        logging.basicConfig(level=logging.DEBUG, handlers=[logging_stderr])
 
         signal.signal(signal.SIGINT, lambda sig, _: self.terminate(sig))
         signal.signal(signal.SIGTERM, lambda sig, _: self.terminate(sig))
@@ -251,6 +254,8 @@ class Runner:
                 exit(1)
 
     def main(self):
+        logger.warning("Running radiotracking...")
+
         if self.dashboard:
             self.dashboard.start()
 

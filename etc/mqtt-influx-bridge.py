@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
+import csv
 import logging
 import platform
 import ssl
+from io import StringIO
 
 import cbor2 as cbor
 import paho.mqtt.client as mqtt
@@ -118,6 +120,32 @@ def on_matched_cbor(client: mqtt.Client, influxc: InfluxDBClient, message):
         logging.warn("Error writing matched signal")
 
 
+def on_log_csv(client: mqtt.Client, influxc: InfluxDBClient, message):
+    # extract payload and meta data
+    csv_io = StringIO(message)
+    csv_reader = csv.reader(csv_io, dialect="excel", delimiter=";")
+    log_csv_header = ["Level", "Name", "Message"]
+    log_arr = next(csv_reader)
+    log_dict = dict(zip(log_csv_header, log_arr[:len(log_csv_header)]))
+    station, _, _, _ = message.topic.split('/')
+
+    # log info message
+    logging.debug(f"{station}: {log_arr}")
+
+    # create influx body
+    json_body = {
+        "measurement": "log",
+        "tags": {
+            "Station": station,
+        },
+        "fields": log_dict,
+    }
+
+    # write influx message
+    if not influxc.write_points([json_body]):
+        logging.warn("Error writing log message")
+
+
 def on_connect(mqttc: mqtt.Client, inlfuxc, flags, rc):
     logging.info(f"MQTT connection established ({rc})")
 
@@ -132,6 +160,12 @@ def on_connect(mqttc: mqtt.Client, inlfuxc, flags, rc):
     mqttc.subscribe(topic_matched_cbor)
     mqttc.message_callback_add(topic_matched_cbor, on_matched_cbor)
     logging.info(f"Subscribed to {topic_matched_cbor}")
+
+    # subscribe to log csv messages
+    topic_log_csv = "+/radiotracking/log/csv"
+    mqttc.subscribe(topic_log_csv)
+    mqttc.message_callback_add(topic_log_csv, on_log_csv)
+    logging.info(f"Subscribed to {topic_log_csv}")
 
 
 if __name__ == "__main__":

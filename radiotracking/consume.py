@@ -57,16 +57,20 @@ class AbstractConsumer(ABC):
         pass
 
 
-class MQTTConsumer(AbstractConsumer):
+class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
     def __init__(
         self,
         mqtt_host: str,
         mqtt_port: int,
         mqtt_qos: int,
         mqtt_keepalive: int,
+        mqtt_verbose: int,
         prefix: str = "/radiotracking",
         **kwargs,
     ):
+        logging_level = max(0, logging.WARN - (mqtt_verbose * 10))
+        super(logging.StreamHandler, self).__init__(level=logging_level)
+
         self.prefix = prefix
         self.mqtt_qos = mqtt_qos
         self.client = paho.mqtt.client.Client(f"{platform.node()}-radiotracking", clean_session=False)
@@ -76,6 +80,15 @@ class MQTTConsumer(AbstractConsumer):
     def __del__(self):
         logger.info("Stopping MQTT thread")
         self.client.loop_stop()
+
+    def emit(self, record):
+        path = f"{self.prefix}/log"
+
+        # publish csv
+        csv_io = StringIO()
+        csv.writer(csv_io, dialect="excel", delimiter=";").writerow([record.levelname, record.name, record.msg])
+        payload_csv = csv_io.getvalue().splitlines()[0]
+        self.client.publish(path + "/csv", payload_csv, qos=self.mqtt_qos)
 
     def add(self, signal: AbstractSignal):
 
@@ -183,6 +196,7 @@ class ProcessConnector:
         if mqtt and not calibrate:
             mqtt_consumer = MQTTConsumer(prefix=f"{station}/radiotracking", **kwargs)
             self.consumers.append(mqtt_consumer)
+            logging.getLogger().addHandler(mqtt_consumer)
 
     def step(self, timeout: datetime.timedelta):
         try:
