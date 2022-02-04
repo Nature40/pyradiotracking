@@ -6,6 +6,7 @@ import logging
 from flask import Flask, jsonify, render_template, request
 from flask_dropzone import Dropzone
 from influxdb import InfluxDBClient
+from influxdb.exceptions import InfluxDBServerError
 from radiotracking import MatchedSignal, Signal
 from werkzeug.datastructures import FileStorage
 
@@ -45,6 +46,7 @@ def upload():
         #     return jsonify(error="Already uploaded."), 409
 
         if not file.filename.endswith(".csv"):
+            logging.info(f"Upload from {request.remote_addr} ({file.filename}): Not a csv file.")
             return jsonify(error="Not a csv file."), 400
 
         filename = file.filename[:-4]
@@ -54,19 +56,24 @@ def upload():
             if filename.endswith("-matched"):
                 file_ts = file_ts[:-8]
 
-            logging.info(
-                f"Receiving file form {station}, created at {file_ts}.")
+            logging.info(f"Receiving file form {station}, created at {file_ts}.")
 
             # org, area, station = hostname.split("-")
         except ValueError as e:
-            logging.info(e)
+            logging.info(f"Upload from {request.remote_addr} ({file.filename}): Filename does not follow required scheme.")
             return jsonify(error="Filename does not follow required scheme."), 406
 
         # call the parsing method
         if filename.endswith("-matched"):
+            logging.info(f"Upload from {request.remote_addr} ({file.filename}): Files of matched signals are currently not supported.")
             return jsonify(error="Files of matched signals are currently not supported."), 400
         else:
-            parse_signals(file, station)
+            logging.info(f"Upload from {request.remote_addr} ({file.filename}): Parsing signal csv file...")
+            try:
+                parse_signals(file, station)
+                logging.info(f"Upload from {request.remote_addr} ({file.filename}): Signals processed successfully!")
+            except InfluxDBServerError as e:
+                return jsonify(error=str(e)), 406
 
         return jsonify(success="Processed successfully!"), 200
 
@@ -90,6 +97,8 @@ def parse_signals(file: FileStorage, station: str):
         file.stream, 'utf-8'), dialect="excel", delimiter=";")
 
     header = next(csvreader)
+
+    points = []
 
     for row in csvreader:
         sig = Signal(*row)
@@ -121,9 +130,13 @@ def parse_signals(file: FileStorage, station: str):
             }
         }
 
-        # write influx message
-        if not influxc.write_points([json_body]):
-            logging.warn("Error writing signal")
+        points.append(json_body)
+
+    logging.info(f"Writing {len(points)} parsed signals to influx.")
+
+    # write influx message
+    if not influxc.write_points(points):
+        raise InfluxDBServerError(f"Error writing signals of {station}.")
 
 
 if __name__ == "__main__":
@@ -143,4 +156,4 @@ if __name__ == "__main__":
     influxc.create_database("radiotracking")
     logging.info(f"Connected to InfluxDB {args.influx_host}:{args.influx_port}")
 
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0")
