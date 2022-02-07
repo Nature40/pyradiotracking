@@ -150,13 +150,13 @@ class Runner:
                 break
 
             # create new device
-            logger.warning(f"SDR {analyzer.device} will be restarted.")
+            logger.warning(f"Restarting SDR {analyzer.device}.")
             new_analyzer = self.create_and_start(analyzer.device, analyzer.calibration_db, analyzer.sdr_max_restart - 1)
             self.analyzers.remove(analyzer)
             self.analyzers.append(new_analyzer)
 
     def terminate(self, sig):
-        logging.warning(f"Caught {signal.Signals(sig).name}, terminating {len(self.analyzers)} analyzers.")
+        logger.warning(f"Caught {signal.Signals(sig).name}, terminating {len(self.analyzers)} analyzers.")
         self.running = False
 
         # Stop the analyzers, and wait for completion
@@ -167,7 +167,7 @@ class Runner:
         if self.dashboard:
             self.dashboard.stop()
 
-        logging.warning("Termination complete, sending SIGKILL.")
+        logger.warning("Termination complete, sending SIGKILL.")
         os.kill(os.getpid(), signal.SIGKILL)
 
     def __init__(self):
