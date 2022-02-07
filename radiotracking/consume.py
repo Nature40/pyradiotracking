@@ -87,10 +87,6 @@ class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
     def emit(self, record):
         path = f"{self.prefix}/log"
 
-        # skip werkzeug / dash vizualization logs
-        if record.name.startswith("werkzeug"):
-            return
-
         # publish csv
         csv_io = StringIO()
         csv.writer(csv_io, dialect="excel", delimiter=";").writerow([record.levelname, record.name, self.format(record)])
@@ -203,7 +199,7 @@ class ProcessConnector:
         if mqtt and not calibrate:
             mqtt_consumer = MQTTConsumer(prefix=f"{station}/radiotracking", **kwargs)
             self.consumers.append(mqtt_consumer)
-            logging.getLogger().addHandler(mqtt_consumer)
+            logging.getLogger("radiotracking").addHandler(mqtt_consumer)
 
     def step(self, timeout: datetime.timedelta):
         try:
