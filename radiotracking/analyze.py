@@ -97,6 +97,7 @@ class SignalAnalyzer(multiprocessing.Process):
         sdr.sample_rate = self.sample_rate
         sdr.center_freq = self.center_freq
         sdr.gain = float(self.gain)
+        sdr.set_agc_mode(False)
         self.sdr = sdr
 
         signal.signal(signal.SIGALRM, self.handle_signal)
