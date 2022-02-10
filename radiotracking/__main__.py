@@ -23,6 +23,9 @@ logger = logging.getLogger("radiotracking")
 
 
 class Runner:
+    """
+    A class to represent a running instance of pyradiotracking. 
+    """
     parser = ArgConfParser(
         prog="radiotracking",
         description="Detect signals of wildlife tracking systems with RTL SDR devices",
@@ -86,6 +89,23 @@ class Runner:
     dashboard_options.add_argument("--dashboard-signals", help="number of signals to present", default=100, type=int)
 
     def create_and_start(self, device: str, calibration_db: float, sdr_max_restart: int = None) -> SignalAnalyzer:
+        """
+        Creates, starts and returns a signal analyzer thread.
+
+        Parameters
+        ----------
+        device: str
+            device index or name
+        calibration_db: float
+            calibration gain (dB)
+        sdr_max_restart: int
+            max restart count per SDR device
+
+        Returns
+        -------
+        SignalAnalyzer: radiotracking.SignalAnalyzer
+            signal analyzer thread
+        """
         dargs = argparse.Namespace(**vars(self.args))
         dargs.device = device
         dargs.calibration_db = calibration_db
@@ -107,6 +127,9 @@ class Runner:
         return analyzer
 
     def start_analyzers(self):
+        """
+        Start all requested analyzer threads.
+        """
         if self.analyzers:
             logger.critical("")
         logger.info("Starting all analyzers")
@@ -114,12 +137,18 @@ class Runner:
             self.analyzers.append(self.create_and_start(device, calibration_db))
 
     def stop_analyzers(self):
+        """
+        Stop all analyzer threads.
+        """
         logger.info("Stopping all analyzers")
         [a.kill() for a in self.analyzers]
         [a.join() for a in self.analyzers]
         self.analyzers = []
 
     def check_analyzers(self):
+        """
+        Check if all analyzer threads are still running.
+        """
         now = datetime.datetime.now()
 
         # iterate the analyzer copy to allow for altering (restarting) analyzers
@@ -156,6 +185,9 @@ class Runner:
             self.analyzers.append(new_analyzer)
 
     def terminate(self, sig):
+        """
+        Terminate the application.
+        """
         logger.warning(f"Caught {signal.Signals(sig).name}, terminating {len(self.analyzers)} analyzers.")
         self.running = False
 
@@ -249,11 +281,14 @@ class Runner:
                 self.schedule.append((start_s.at_time, stop_s.at_time))
                 logger.debug(f"Added {start_s.at_time}-{stop_s.at_time} to schedule")
 
-            except schedule.ScheduleError as e:
-                logger.error(f"{e}, please check configuration '{entry}'.")
+            except schedule.ScheduleError as error:
+                logger.error(f"{error}, please check configuration '{entry}'.")
                 exit(1)
 
     def main(self):
+        """
+        Run the main loop of the application.
+        """
         logger.warning("Running radiotracking...")
 
         if self.dashboard:

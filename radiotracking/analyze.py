@@ -8,6 +8,7 @@ from typing import List, Union
 
 import numpy as np
 import pytz
+import radiotracking
 import rtlsdr
 import scipy.signal
 
@@ -17,6 +18,47 @@ logger = logging.getLogger(__name__)
 
 
 class SignalAnalyzer(multiprocessing.Process):
+    """
+    Class representing a process for analysis of rtlsdr samples.
+
+    Parameters
+    ----------
+    device: str
+        The device index or serial number of the SDR to use.
+    calibration_db: float
+        The calibration offset in dB.
+    sample_rate: int
+        The sample rate of the SDR.
+    center_freq: int
+        The center frequency of the SDR.
+    gain: float
+        The gain of the SDR.
+    fft_nperseg: int
+        The number of samples per segment for the FFT.
+    fft_window:
+        The window function to use for the FFT.
+    signal_min_duration_ms: float
+        The minimum duration of a signal in ms.
+    signal_max_duration_ms: float
+        The maximum duration of a signal in ms.
+    signal_threshold_dbw: float
+        The signal threshold in dBW.
+    snr_threshold_db: float
+        The SNR threshold in dB.
+    verbose: int
+        The verbosity level.
+    sdr_max_restart: int
+        The maximum number of times to restart the SDR.
+    sdr_timeout_s: int
+        The timeout in seconds for the SDR.
+    sdr_callback_length: int
+        The length of the SDR callback in samples.
+    signal_queue: multiprocessing.Queue
+        The multiprocessing queue to put the signals in.
+    last_data_ts: multiprocessing.Value
+        The multiprocessing value to put the last data timestamp in.
+    """
+
     def __init__(
         self,
         device: str,
@@ -85,6 +127,9 @@ class SignalAnalyzer(multiprocessing.Process):
         self._ts = None
 
     def run(self):
+        """
+        Starts the analyzing process and hands control flow over to rtlsdr.
+        """
         signal.signal(signal.SIGTERM, self.handle_signal)
         signal.signal(signal.SIGINT, self.handle_signal)
 
@@ -107,6 +152,16 @@ class SignalAnalyzer(multiprocessing.Process):
         self.sdr.read_samples_async(self.process_samples, self.sdr_callback_length)
 
     def handle_signal(self, sig, frame):
+        """
+        Handles the SIGINT and SIGTERM signals.
+
+        Parameters
+        ----------
+        sig: int
+            The signal number.
+        frame:
+            The stack frame.
+        """
         if sig == signal.SIGALRM:
             logger.warning(f"SDR {self.device} received SIGALRM, last data received {datetime.datetime.now() - self._ts} ago.")
         elif sig == signal.SIGTERM:
@@ -116,11 +171,16 @@ class SignalAnalyzer(multiprocessing.Process):
 
         self.sdr.cancel_read_async()
 
-    def process_samples(self, buffer, context):
-        """Process samples read from sdr.
+    def process_samples(self, buffer: np.ndarray, context):
+        """
+        Process samples read from sdr, callback method.
 
-        buffer -- Buffer with read samples
-        context -- Context as handed back from read_samples_async, unused
+        Parameters
+        ----------
+        buffer: np.ndarray
+            Buffer with read samples
+        context:
+            Context as handed back from read_samples_async, unused
         """
         # note recv datetime
         ts_recv = datetime.datetime.now()
@@ -183,51 +243,84 @@ class SignalAnalyzer(multiprocessing.Process):
         )
         self._spectrogram_last = spectrogram
 
-    def consume_signal(self, signal):
+    def consume_signal(self, signal: Signal):
+        """
+        Puts a detected signals into the signal queue.
+
+        Parameters
+        ----------
+        signal: radiotracking.Signal
+            The signal to put into the queue.
+        """
         logger.debug(f"SDR {self.device} received {signal}")
         self.signal_queue.put(signal)
 
-    def filter_shadow_signals(self, signals):
-        def is_shadow_of(sig: Signal, signals: List[Signal]) -> Union[None, int]:
-            """Compute shadow status of received signals.
-            A shadow signal occurs at the same datetime, but with lower power, often in neighbour frequencies.
+    @staticmethod
+    def is_shadow_of(sig: Signal, signals: List[Signal]) -> Union[None, int]:
+        """Compute shadow status of received signals.
+        A shadow signal occurs at the same datetime, but with lower power, often in neighbour frequencies.
 
-            Args:
-                sig (Signal): The signal to analyse.
-                signals (List[Signal]): List of signals to compare to.
+        Parameters
+        ----------
+        sig: radiotracking.Signal
+            The signal to analyse.
+        signals: typing.List[radiotracking.Signal]
+            List of signals to compare to.
 
-            Returns:
-                Union[None, int]: index in signals list, if a shadow of another signal; None if not a shadow.
-            """
-            # iterate through all other signals
-            for i, fsig in enumerate(signals):
-                # if sig starts after fsig ends, ignore
-                if sig.ts > fsig.ts + fsig.duration:
-                    continue
+        Returns
+        -------
+        Union[None, int]:
+            index in signals list, if a shadow of another signal; None if not a shadow.
+        """
+        # iterate through all other signals
+        for i, fsig in enumerate(signals):
+            # if sig starts after fsig ends, ignore
+            if sig.ts > fsig.ts + fsig.duration:
+                continue
 
-                # if sig ends before fsig starts, ignore
-                if sig.ts + sig.duration < fsig.ts:
-                    continue
+            # if sig ends before fsig starts, ignore
+            if sig.ts + sig.duration < fsig.ts:
+                continue
 
-                # if fsig is louder, we are a shadow, return index
-                if fsig.max > sig.max:
-                    return i
+            # if fsig is louder, we are a shadow, return index
+            if fsig.max > sig.max:
+                return i
 
-            return None
+        return None
 
-        signals_status = [is_shadow_of(sig, signals) for sig in signals]
+    def filter_shadow_signals(self, signals: List[Signal]):
+        """
+        Filters out signals that are too close to each other.
+
+        Parameters
+        ----------
+        signals: typing.List[radiotracking.Signal]
+            The signals to filter.
+        """
+
+        signals_status = [SignalAnalyzer.is_shadow_of(sig, signals) for sig in signals]
         logger.debug(f"shadow list: {signals_status}")
 
         return [sig for sig, shadow in zip(signals, signals_status) if shadow is None]
 
-    def extract_signals(self, freqs, times, spectrogram, ts_start):
+    def extract_signals(self, freqs: np.ndarray, times: np.ndarray, spectrogram: np.ndarray, ts_start: datetime.datetime) -> List[Signal]:
         """Extract plateaus from spectogram data.
 
-        Keyword arguments:
-        freqs -- spectogram frequency offsets
-        times -- spectogram discrete times
-        spectrogram -- 2d spectrogram data
-        ts_start -- spectogram start time
+        Parameters
+        ----------
+        freqs: np.ndarray
+            spectogram frequency offsets
+        times: np.ndarray
+            spectogram discrete times
+        spectrogram: np.ndarray
+            2d spectrogram data
+        ts_start:
+            spectogram start time
+
+        Returns
+        -------
+        List[radiotracking.Signal]
+            List of signals extracted from spectogram.
         """
         signals = []
 
@@ -318,9 +411,9 @@ class SignalAnalyzer(multiprocessing.Process):
 
                 # extract data
                 if start < 0:
-                    data = np.concatenate((self._spectrogram_last[fi][start:], fft[:end]))
+                    data = np.concatenate((self._spectrogram_last[fi][start:], fft[: end]))
                 else:
-                    data = fft[start:end]
+                    data = fft[start: end]
 
                 max_dBW = dB(np.max(data)) - self.calibration_db
                 avg = np.mean(data)

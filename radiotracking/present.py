@@ -2,7 +2,6 @@ import argparse
 import collections
 import datetime
 import os
-import signal
 import threading
 from ast import literal_eval
 from typing import DefaultDict, Deque, Dict, Iterable, List, Tuple, Union
@@ -429,7 +428,7 @@ class ConfigDashboard(threading.Thread):
             dashboard_port: int,
             **kwargs,
     ):
-
+        threading.Thread.__init__(self)
         self.app = dash.Dash(
             __name__,
             url_base_pathname='/radiotracking-config/',

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def jsonify(o):
+    """Helper function to convert non-native types to JSON serializable values."""
     if isinstance(o, datetime.datetime):
         o: datetime.datetime
         return o.isoformat()
@@ -32,12 +33,14 @@ def jsonify(o):
 
 
 def cborify(encoder, o):
+    """Helper function to convert non-native types to CBOR serializable values."""
     if isinstance(o, datetime.timedelta):
         o: datetime.timedelta
         encoder.encode(cbor.CBORTag(1337, o.total_seconds()))
 
 
 def uncborify(decoder, tag, shareable_index=None):
+    """Helper function to convert CBOR tags to their original datatype."""
     if tag.tag == 1337:
         return datetime.timedelta(seconds=tag.value)
 
@@ -45,6 +48,7 @@ def uncborify(decoder, tag, shareable_index=None):
 
 
 def csvify(o):
+    """Helper function to convert non-native types to CSV serializable values."""
     if isinstance(o, datetime.timedelta):
         return o.total_seconds()
 
@@ -52,12 +56,33 @@ def csvify(o):
 
 
 class AbstractConsumer(ABC):
+    """Abstract base class for consumers."""
+
     @abstractmethod
     def add(self, signal: AbstractSignal):
+        """Add a signal to the consumer."""
         pass
 
 
 class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
+    """Class implementing a consumer that publishes data to an MQTT broker.
+
+    Parameters
+    ----------
+    mqtt_host : str
+        The hostname of the MQTT broker.
+    mqtt_port: int
+        The port of the MQTT broker.
+    mqtt_qos: int
+        The quality of service to use.
+    mqtt_keepalive: int
+        The keepalive interval in seconds.
+    mqtt_verbose: int
+        The verbosity level for log messages to be forwarded.
+    prefix: str
+        The prefix to use for the MQTT topics.
+        """
+
     def __init__(
         self,
         mqtt_host: str,
@@ -85,6 +110,7 @@ class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
         self.client.loop_stop()
 
     def emit(self, record):
+        """Override the emit method to forward log messages to the MQTT broker."""
         path = f"{self.prefix}/log"
 
         # publish csv
@@ -94,6 +120,7 @@ class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
         self.client.publish(path + "/csv", payload_csv, qos=self.mqtt_qos)
 
     def add(self, signal: AbstractSignal):
+        """Add a signal to the consumer."""
 
         if isinstance(signal, Signal):
             path = f"{self.prefix}/device/{signal.device}"
@@ -129,6 +156,19 @@ class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
 
 
 class CSVConsumer(AbstractConsumer):
+    """
+    Class implementing a consumer that writes a local CSV file.
+
+    Parameters
+    ----------
+    filename : str
+        The filename of the CSV file.
+    cls : Type[AbstractSignal]
+        The type of signals to be written to the CSV file.
+    header : List[str]
+        The header of the CSV file.
+    """
+
     def __init__(self,
                  out,
                  cls: Type[AbstractSignal],
@@ -143,6 +183,7 @@ class CSVConsumer(AbstractConsumer):
         self.out.flush()
 
     def add(self, signal: AbstractSignal):
+        """Add a signal to the consumer."""
         if isinstance(signal, self.cls):
             self.writer.writerow([csvify(v) for v in signal.as_list])
             self.out.flush()
@@ -153,6 +194,29 @@ class CSVConsumer(AbstractConsumer):
 
 
 class ProcessConnector:
+    """
+    Connects the running analysis processes to the consumers.
+
+    Parameters
+    ----------
+    stations : List[str]
+        Name of the station.
+    device : List[str]
+        Name of the devices used by the station.
+    calibrate : bool
+        Whether to use the signals to calibrate the station.
+    sig_stdout : bool
+        Whether to write detected signals to stdout.
+    match_stdout : bool
+        Whether to write matched signals to stdout.
+    path : str
+        The path to write output files.
+    csv : bool
+        Whether to write CSV files.
+    mqtt : bool
+        Whether to publish data via MQTT.
+    """
+
     def __init__(self,
                  station: str,
                  device: List[str],
@@ -166,6 +230,7 @@ class ProcessConnector:
                  ):
         self.q: multiprocessing.Queue[AbstractSignal] = multiprocessing.Queue()
         self.consumers: List[AbstractConsumer] = []
+        """List of consumers data is published to."""
 
         ts = datetime.datetime.now()
 
@@ -202,6 +267,13 @@ class ProcessConnector:
             logging.getLogger("radiotracking").addHandler(mqtt_consumer)
 
     def step(self, timeout: datetime.timedelta):
+        """
+        Method that waits for new signals and publishes them to the consumers, blocking.
+
+        Parameters
+        ----------
+        timeout : datetime.timedelta
+            The timeout for the blocking call."""
         try:
             sig = self.q.get(timeout=timeout.total_seconds())
         except queue.Empty:
