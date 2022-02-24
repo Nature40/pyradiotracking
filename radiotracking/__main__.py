@@ -199,7 +199,7 @@ class Runner:
         if self.dashboard:
             self.dashboard.stop()
 
-        logger.warning("Termination complete, sending SIGKILL.")
+        logger.warning("Termination complete.")
         os.kill(os.getpid(), signal.SIGKILL)
 
     def __init__(self):

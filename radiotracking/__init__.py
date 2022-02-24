@@ -345,11 +345,11 @@ class MatchingSignal(MatchedSignal):
             The signal to add.
         """
         if sig.device in self._sigs:
-            logger.warning(f"{sig} already contained in {self}")
+            logger.info(f"{sig} already contained in {self}")
             if self._sigs[sig.device].avg < sig.avg:
-                logger.warning(f"Replacing initial {self._sigs[sig.device]}")
+                logger.info(f"Replacing initial {self._sigs[sig.device]}")
                 self._sigs[sig.device] = sig
             else:
-                logger.warning(f"Keeping initial {self._sigs[sig.device]}")
+                logger.info(f"Keeping initial {self._sigs[sig.device]}")
         else:
             self._sigs[sig.device] = sig

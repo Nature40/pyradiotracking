@@ -113,6 +113,10 @@ class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
         """Override the emit method to forward log messages to the MQTT broker."""
         path = f"{self.prefix}/log"
 
+        # skip dash messages
+        if record.name.startswith("radiotracking.present"):
+            return
+
         # publish csv
         csv_io = StringIO()
         csv.writer(csv_io, dialect="excel", delimiter=";").writerow([record.levelname, record.name, self.format(record)])
