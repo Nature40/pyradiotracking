@@ -439,6 +439,7 @@ class ConfigDashboard(threading.Thread):
         config_columns.children.append(html.Div("Reconfiguration requires restarting of pyradiotracking. Please keep in mind, that a broken configuration might lead to failing starts."))
 
         self.running_args = running_args
+        self.immutable_args = immutable_args
         self.config_states: List[State] = []
 
         for group in Runner.parser._action_groups:
@@ -460,14 +461,14 @@ class ConfigDashboard(threading.Thread):
                 if action.dest not in vars(running_args):
                     continue
 
+                value = vars(running_args)[action.dest]
+
                 group_div.children.append(html.P(children=[
                     html.B(action.dest),
                     f" - {action.help}",
                     html.Br(),
-                    dcc.Input(id=action.dest, value=repr(vars(running_args)[action.dest])),
+                    dcc.Input(id=action.dest, value=repr(value)),
                 ]))
-
-                value = vars(running_args)[action.dest]
 
                 if action.type == int or isinstance(action, argparse._CountAction):
                     if not isinstance(value, list):
@@ -485,11 +486,11 @@ class ConfigDashboard(threading.Thread):
                 elif isinstance(action, argparse._StoreTrueAction):
                     group_div.children[-1].children[-1] = dcc.Checklist(
                         id=action.dest,
-                        options=[{"value": action.dest, "disabled": action.dest in immutable_args}, ],
+                        options=[{"value": action.dest, "disabled": action.dest in self.immutable_args}, ],
                         value=[action.dest] if value else [],
                     )
 
-                if action.dest in immutable_args:
+                if action.dest in self.immutable_args:
                     group_div.children[-1].children[-1].disabled = True
 
                 self.config_states.append(State(action.dest, "value"))
@@ -517,9 +518,21 @@ class ConfigDashboard(threading.Thread):
 
         self.calibrations: Dict[float, Dict[str, float]] = {}
 
+    def _update_values(self):
+        for el in self.app.layout._traverse():
+            if getattr(el, "id", None):
+                if not el.id in self.running_args:
+                    continue
+
+                value = vars(self.running_args)[el.id]
+                if isinstance(value, bool):
+                    el.value = [el.id] if value else []
+                else:
+                    el.value = repr(value)
+
     def submit_config(self, clicks, *form_args):
         msg = html.Div(children=[])
-        args = Runner.parser.parse_args([])
+        args = self.running_args
 
         if not clicks:
             return msg
@@ -527,6 +540,10 @@ class ConfigDashboard(threading.Thread):
         for dest, value in zip([state.component_id for state in self.config_states], form_args):
             # find corresponding action
             for action in Runner.parser._actions:
+                # ignore immutable args
+                if action.dest in self.immutable_args:
+                    continue
+
                 if action.dest == dest:
                     # boolean values are returned as lists, check if id is set
                     if isinstance(value, list):
@@ -548,6 +565,7 @@ class ConfigDashboard(threading.Thread):
             msg.children.append(html.P(str(e)))
             return msg
 
+        self._update_values()
         msg.children.append(html.P(f"Config successfully written to '{args.config}'."))
         return msg
 
