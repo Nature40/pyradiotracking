@@ -8,10 +8,10 @@ from typing import List, Union
 
 import numpy as np
 import pytz
-import radiotracking
 import rtlsdr
 import scipy.signal
 
+import radiotracking
 from radiotracking import Signal, dB, from_dB
 
 logger = logging.getLogger(__name__)
@@ -163,9 +163,9 @@ class SignalAnalyzer(multiprocessing.Process):
             The stack frame.
         """
         if sig == signal.SIGALRM:
-            logger.warning(f"SDR {self.device} received SIGALRM, last data received {datetime.datetime.now() - self._ts} ago.")
+            logger.warning("SDR %s received SIGALRM, last data received %s ago.", self.device, datetime.datetime.now() - self._ts if self._ts else '(no signal yet)')
         elif sig == signal.SIGTERM:
-            logger.warning(f"SDR {self.device} received SIGTERM, terminating.")
+            logger.warning("SDR %s received SIGTERM, terminating.", self.device)
         elif sig == signal.SIGINT:
             return
 
