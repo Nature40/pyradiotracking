@@ -195,7 +195,13 @@ class MatchedSignal(AbstractSignal):
         else:
             self.duration = datetime.timedelta(seconds=float(duration))
 
-        self._avgs: List[float] = [float(avg) for avg in avgs]
+        self._avgs: List[float] = []
+        for avg in avgs:
+            try:
+                self._avgs.append(float(avg))
+            except TypeError:
+                self._avgs.append(None)
+
 
     @property
     def header(self) -> List[str]:
