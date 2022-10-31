@@ -12,7 +12,7 @@ from dash import dcc, html
 from dash.dependencies import Input, Output, State
 from werkzeug.serving import ThreadedWSGIServer
 
-from radiotracking import AbstractSignal, MatchingSignal, Signal
+from radiotracking import AbstractMessage, MatchingSignal, Signal
 from radiotracking.__main__ import Runner
 from radiotracking.consume import AbstractConsumer
 
@@ -198,7 +198,7 @@ class Dashboard(AbstractConsumer, threading.Thread):
 
         self.calibrations: Dict[float, Dict[str, float]] = {}
 
-    def add(self, signal: AbstractSignal):
+    def add(self, signal: AbstractMessage):
         if isinstance(signal, Signal):
             self.signal_queue.append(signal)
 

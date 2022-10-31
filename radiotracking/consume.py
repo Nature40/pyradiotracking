@@ -15,7 +15,7 @@ from typing import List, Type
 import cbor2 as cbor
 import paho.mqtt.client
 
-from radiotracking import AbstractSignal, MatchingSignal, Signal
+from radiotracking import AbstractMessage, MatchingSignal, Signal, StateMessage
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class AbstractConsumer(ABC):
     """Abstract base class for consumers."""
 
     @abstractmethod
-    def add(self, signal: AbstractSignal):
+    def add(self, signal: AbstractMessage):
         """Add a signal to the consumer."""
         pass
 
@@ -123,7 +123,7 @@ class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
         payload_csv = csv_io.getvalue().splitlines()[0]
         self.client.publish(path + "/csv", payload_csv, qos=self.mqtt_qos)
 
-    def add(self, signal: AbstractSignal):
+    def add(self, signal: AbstractMessage):
         """Add a signal to the consumer."""
 
         if isinstance(signal, Signal):
@@ -167,7 +167,7 @@ class CSVConsumer(AbstractConsumer):
     ----------
     filename : str
         The filename of the CSV file.
-    cls : Type[AbstractSignal]
+    cls : Type[AbstractMessage]
         The type of signals to be written to the CSV file.
     header : List[str]
         The header of the CSV file.
@@ -175,7 +175,7 @@ class CSVConsumer(AbstractConsumer):
 
     def __init__(self,
                  out,
-                 cls: Type[AbstractSignal],
+                 cls: Type[AbstractMessage],
                  header: List[str] = None,
                  ):
         self.out = out
@@ -186,7 +186,7 @@ class CSVConsumer(AbstractConsumer):
             self.writer.writerow(header)
         self.out.flush()
 
-    def add(self, signal: AbstractSignal):
+    def add(self, signal: AbstractMessage):
         """Add a signal to the consumer."""
         if isinstance(signal, self.cls):
             self.writer.writerow([csvify(v) for v in signal.as_list])
@@ -232,7 +232,7 @@ class ProcessConnector:
                  mqtt: bool,
                  **kwargs,
                  ):
-        self.q: multiprocessing.Queue[AbstractSignal] = multiprocessing.Queue()
+        self.q: multiprocessing.Queue[AbstractMessage] = multiprocessing.Queue()
         self.consumers: List[AbstractConsumer] = []
         """List of consumers data is published to."""
 
@@ -263,6 +263,12 @@ class ProcessConnector:
             matched_csv_path += "_calibration" if calibrate else ""
             matched_csv_consumer = CSVConsumer(open(f"{matched_csv_path}.csv", "w"), cls=MatchingSignal, header=MatchingSignal(device).header)
             self.consumers.append(matched_csv_consumer)
+
+            # create consumer for state information
+            state_csv_path = f"{path}/{station}_{ts:%Y-%m-%dT%H%M%S}-state"
+            state_csv_path += "_calibration" if calibrate else ""
+            state_csv_consumer = CSVConsumer(open(f"{state_csv_path}.csv", "w"), cls=StateMessage, header=StateMessage.header)
+            self.consumers.append(state_csv_consumer)
 
         # add mqtt consumer (only if not in calibration)
         if mqtt and not calibrate:

@@ -3,7 +3,7 @@ import logging
 import multiprocessing
 from typing import List
 
-from radiotracking import AbstractSignal, MatchingSignal, Signal
+from radiotracking import AbstractMessage, MatchingSignal, Signal
 from radiotracking.consume import AbstractConsumer
 
 logger = logging.getLogger(__name__)
@@ -51,13 +51,13 @@ class SignalMatcher(AbstractConsumer):
         self.signal_queue.put(msig)
         self._matched.remove(msig)
 
-    def add(self, signal: AbstractSignal):
+    def add(self, signal: AbstractMessage):
         """
         Add a signal to the matcher.
 
         Parameters
         ----------
-        signal : AbstractSignal
+        signal : AbstractMessage
             Signal to add.
         """
         if not isinstance(signal, Signal):

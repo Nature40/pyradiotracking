@@ -12,7 +12,7 @@ import rtlsdr
 import scipy.signal
 
 import radiotracking
-from radiotracking import Signal, dB, from_dB
+from radiotracking import Signal, StateMessage, dB, from_dB
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,9 @@ class SignalAnalyzer(multiprocessing.Process):
         sdr.set_agc_mode(False)
         self.sdr = sdr
 
+        # initialize state
+        self.last_state = None
+
         signal.signal(signal.SIGALRM, self.handle_signal)
         signal.alarm(self.sdr_timeout_s)
 
@@ -169,7 +172,20 @@ class SignalAnalyzer(multiprocessing.Process):
         elif sig == signal.SIGINT:
             return
 
+        self.update_state(datetime.datetime.now(), StateMessage.State.STOPPED)
         self.sdr.cancel_read_async()
+
+    def update_state(self, ts: datetime.datetime, state: StateMessage.State):
+        # skip update if there is a state
+        if self.last_state:
+            # the state is different
+            if self.last_state.state == state:
+                # the state's timeout isn't over
+                if self.last_state.ts + datetime.timedelta(seconds=10) >= ts:
+                    return
+
+        self.last_state = StateMessage(self.device, ts, state)
+        self.signal_queue.put(self.last_state)
 
     def process_samples(self, buffer: np.ndarray, context):
         """
@@ -188,6 +204,11 @@ class SignalAnalyzer(multiprocessing.Process):
 
         # reset alarm timer
         signal.alarm(self.sdr_timeout_s)
+        # logger.info()
+        if not self.last_data_ts.value:
+            self.update_state(datetime.datetime.now(), StateMessage.State.STARTED)
+        else:
+            self.update_state(ts_recv, StateMessage.State.RUNNING)
         self.last_data_ts.value = datetime.datetime.timestamp(ts_recv)
         logger.info(f"SDR {self.device} received data at {self.last_data_ts.value}")
 
@@ -202,6 +223,7 @@ class SignalAnalyzer(multiprocessing.Process):
         # warn on clock drift and resync
         if clock_drift > 2 * buffer_len_dt.total_seconds():
             logger.warning(f"SDR {self.device} total clock drift ({clock_drift:.5f} s) is larger than two blocks, signal detection is degraded. Terminating...")
+            self.update_state(datetime.datetime.now(), StateMessage.State.STOPPED)
             self.sdr.cancel_read_async()
 
         ts_start = self._ts - buffer_len_dt

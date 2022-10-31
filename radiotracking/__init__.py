@@ -2,6 +2,7 @@ import datetime
 import logging
 import statistics
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Dict, List, Optional, Union
 
 import numpy as np
@@ -21,9 +22,9 @@ def from_dB(dB: float):
     return 10 ** (dB / 10)
 
 
-class AbstractSignal(ABC):
+class AbstractMessage(ABC):
     """
-    Abstract class for a signal.
+    Abstract class for a message.
     """
     header: List[str]
     """Header for the as_list() method."""
@@ -32,17 +33,13 @@ class AbstractSignal(ABC):
         super().__init__()
 
         self.ts: datetime.datetime
-        """Timestamp of the signal."""
-        self.frequency: float
-        """Frequency of the signal in Hz."""
-        self.duration: datetime.timedelta
-        """Duration of the signal."""
+        """Timestamp of the message."""
 
     @property
     @abstractmethod
     def as_list(self) -> List:
         """
-        Return the signal as a list of values.
+        Return the message as a list of values.
 
         Returns
         -------
@@ -52,13 +49,58 @@ class AbstractSignal(ABC):
     @property
     def as_dict(self) -> Dict:
         """
-        Return the signal as a dictionary.
+        Return the message as a dictionary.
 
         Returns
         -------
         typing.Dict[str, typing.Any]
         """
         return dict(zip(self.header, self.as_list))
+
+
+class StateMessage(AbstractMessage):
+    class State(Enum):
+        STOPPED = 0
+        RUNNING = 1
+        STARTED = 2
+
+    def __init__(self,
+                 device: str,
+                 ts: datetime.datetime,
+                 state: State,
+                 ):
+        super().__init__()
+
+        self.device: str = device
+        self.ts: datetime.datetime = ts
+        self.state: StateMessage.State = state
+
+    header: List[str] = ["Device", "Time", "State"]
+
+    @property
+    def as_list(self) -> List:
+        return [
+            self.device,
+            self.ts,
+            self.state.value,
+        ]
+
+    def __repr__(self) -> str:
+        return f"StateMessage({self.device}, {self.ts}, {self.state})"
+
+
+class AbstractSignal(AbstractMessage):
+    """
+    Abstract class for a signal.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.frequency: float
+        """Frequency of the signal in Hz."""
+        self.duration: datetime.timedelta
+        """Duration of the signal."""
 
 
 class Signal(AbstractSignal):
@@ -201,7 +243,6 @@ class MatchedSignal(AbstractSignal):
                 self._avgs.append(float(avg))
             except TypeError:
                 self._avgs.append(None)
-
 
     @property
     def header(self) -> List[str]:

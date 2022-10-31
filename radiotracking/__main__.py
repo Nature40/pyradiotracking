@@ -9,11 +9,13 @@ import platform
 import signal
 import socket
 import subprocess
+import time
 from ast import literal_eval
 from typing import List
 
 import schedule
 
+from radiotracking import StateMessage
 from radiotracking.analyze import SignalAnalyzer
 from radiotracking.config import ArgConfParser
 from radiotracking.consume import ProcessConnector
@@ -166,6 +168,7 @@ class Runner:
 
                 # kill timed out analyzer
                 logger.warning(f"SDR {analyzer.device} received last data {datetime.datetime.fromtimestamp(analyzer.last_data_ts.value)}; timed out.")
+                analyzer.signal_queue.put(StateMessage(analyzer.device, datetime.datetime.fromtimestamp(analyzer.last_data_ts.value), StateMessage.State.STOPPED))
                 analyzer.kill()
                 analyzer.join()
 
