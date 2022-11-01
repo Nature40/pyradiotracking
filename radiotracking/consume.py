@@ -130,6 +130,8 @@ class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
             path = f"{self.prefix}/device/{signal.device}"
         elif isinstance(signal, MatchingSignal):
             path = f"{self.prefix}/matched"
+        elif isinstance(signal, StateMessage):
+            path = f"{self.prefix}/state"
         else:
             logger.critical(f"Unknown data type {type(signal)}, skipping.")
             return
