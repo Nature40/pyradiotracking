@@ -75,6 +75,7 @@ class SignalAnalyzer(multiprocessing.Process):
         verbose: int,
         sdr_max_restart: int,
         sdr_timeout_s: int,
+        state_update_s: int,
         sdr_callback_length: int,
         signal_queue: multiprocessing.Queue,
         last_data_ts: multiprocessing.Value,
@@ -119,6 +120,7 @@ class SignalAnalyzer(multiprocessing.Process):
 
         self.sdr_max_restart = sdr_max_restart
         self.sdr_timeout_s = sdr_timeout_s
+        self.state_update_s = state_update_s
 
         self.signal_queue = signal_queue
         self.last_data_ts = last_data_ts
@@ -181,7 +183,7 @@ class SignalAnalyzer(multiprocessing.Process):
             # the state is different
             if self.last_state.state == state:
                 # the state's timeout isn't over
-                if self.last_state.ts + datetime.timedelta(seconds=10) >= ts:
+                if self.last_state.ts + datetime.timedelta(seconds=self.state_update_s) >= ts:
                     return
 
         self.last_state = StateMessage(self.device, ts, state)

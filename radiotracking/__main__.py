@@ -52,6 +52,7 @@ class Runner:
     sdr_options.add_argument("-g", "--gain", help="gain, supported levels 0.0 - 49.6", default="49.6", type=float)
     sdr_options.add_argument("--sdr-max-restart", help="maximal restart count per SDR device", default=3, type=int)
     sdr_options.add_argument("--sdr-timeout-s", help="Time after which an SDR device is considered unrepsonsive (s)", default=2, type=int)
+    sdr_options.add_argument("--state-update-s", help="interval in which state update messages should be recorded (s)", default=10, type=int)
 
     # analysis options
     analysis_options = parser.add_argument_group("analysis")
