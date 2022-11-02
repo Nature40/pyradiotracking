@@ -94,6 +94,7 @@ class MQTTConsumer(logging.StreamHandler, AbstractConsumer):
         **kwargs,
     ):
         logging_level = max(0, logging.WARN - (mqtt_verbose * 10))
+        logging.StreamHandler.__init__(self)
         super(logging.StreamHandler, self).__init__(level=logging_level)
 
         fmt = logging.Formatter("%(message)s")

@@ -183,10 +183,10 @@ class SignalAnalyzer(multiprocessing.Process):
             # the state is different
             if self.last_state.state == state:
                 # the state's timeout isn't over
-                if self.last_state.ts + datetime.timedelta(seconds=self.state_update_s) >= ts:
+                if self.last_state.ts + datetime.timedelta(seconds=self.state_update_s) >= ts.astimezone(pytz.UTC):
                     return
 
-        self.last_state = StateMessage(self.device, ts, state)
+        self.last_state = StateMessage(self.device, ts.astimezone(pytz.utc), state)
         self.signal_queue.put(self.last_state)
 
     def process_samples(self, buffer: np.ndarray, context):

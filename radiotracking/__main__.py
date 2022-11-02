@@ -9,10 +9,10 @@ import platform
 import signal
 import socket
 import subprocess
-import time
 from ast import literal_eval
 from typing import List
 
+import pytz
 import schedule
 
 from radiotracking import StateMessage
@@ -144,6 +144,7 @@ class Runner:
         Stop all analyzer threads.
         """
         logger.info("Stopping all analyzers")
+        [a.signal_queue.put(StateMessage(a.device, datetime.datetime.fromtimestamp(a.last_data_ts.value, tz=pytz.utc), StateMessage.State.STOPPED)) for a in self.analyzers]
         [a.kill() for a in self.analyzers]
         [a.join() for a in self.analyzers]
         self.analyzers = []
@@ -169,7 +170,7 @@ class Runner:
 
                 # kill timed out analyzer
                 logger.warning(f"SDR {analyzer.device} received last data {datetime.datetime.fromtimestamp(analyzer.last_data_ts.value)}; timed out.")
-                analyzer.signal_queue.put(StateMessage(analyzer.device, datetime.datetime.fromtimestamp(analyzer.last_data_ts.value), StateMessage.State.STOPPED))
+                analyzer.signal_queue.put(StateMessage(analyzer.device, datetime.datetime.fromtimestamp(analyzer.last_data_ts.value, tz=pytz.utc), StateMessage.State.STOPPED))
                 analyzer.kill()
                 analyzer.join()
 
@@ -196,15 +197,13 @@ class Runner:
         self.running = False
 
         # Stop the analyzers, and wait for completion
-        [a.kill() for a in self.analyzers]
-        [a.join() for a in self.analyzers]
-        self.analyzers = []
+        self.stop_analyzers()
 
         if self.dashboard:
             self.dashboard.stop()
 
         logger.warning("Termination complete.")
-        os.kill(os.getpid(), signal.SIGKILL)
+        # os.kill(os.getpid(), signal.SIGKILL)
 
     def __init__(self):
         self.running = True
