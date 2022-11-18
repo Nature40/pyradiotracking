@@ -67,7 +67,7 @@ class StateMessage(AbstractMessage):
     def __init__(self,
                  device: str,
                  ts: datetime.datetime,
-                 state: Union[State, int],  
+                 state: Union[State, int, str],
                  ):
         super().__init__()
 
@@ -77,7 +77,7 @@ class StateMessage(AbstractMessage):
         if isinstance(state, StateMessage.State):
             self.state = state
         else:
-            self.state = StateMessage.State(state)
+            self.state = StateMessage.State(int(state))
 
     header: List[str] = ["Device", "Time", "State"]
 
