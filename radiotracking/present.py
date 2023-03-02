@@ -1,6 +1,7 @@
 import argparse
 import collections
 import datetime
+import logging
 import os
 import threading
 from ast import literal_eval
@@ -193,8 +194,10 @@ class Dashboard(AbstractConsumer, threading.Thread):
 
         self.app.layout = html.Div([tabs])
         self.app.layout.style = {"font-family": "sans-serif"}
+        self.app.logger.setLevel(logging.WARNING)
 
         self.server = ThreadedWSGIServer(dashboard_host, dashboard_port, self.app.server)
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
         self.calibrations: Dict[float, Dict[str, float]] = {}
 
@@ -521,7 +524,7 @@ class ConfigDashboard(threading.Thread):
     def _update_values(self):
         for el in self.app.layout._traverse():
             if getattr(el, "id", None):
-                if not el.id in self.running_args:
+                if el.id not in self.running_args:
                     continue
 
                 value = vars(self.running_args)[el.id]
